@@ -1,0 +1,12 @@
+# Keep the repository text LF (the WASM toolchain does not care, but the shell
+# scripts must run on Linux/macOS checkouts too); PowerShell keeps CRLF.
+* text=auto
+*.sh          text eol=lf
+*.rs          text eol=lf
+*.toml        text eol=lf
+*.json        text eol=lf
+*.md          text eol=lf
+*.ps1         text eol=crlf
+*.wasm        binary
+*.zip         binary
+*.svg         text eol=lf

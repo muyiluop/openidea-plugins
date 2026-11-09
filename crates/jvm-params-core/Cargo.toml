@@ -1,0 +1,19 @@
+[package]
+name = "jvm-params-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Host-independent logic for the OpenIDEA JVM Default Parameters plugin: settings parsing, command-line splitting/merging, JetBrains/VS Code run configuration parsing and patching, project detection and launch plan generation."
+license = "MIT"
+publish = false
+
+# Its own workspace: this crate is testable without the OpenIDEA SDK and without
+# network access (`cargo test --offline`).
+[workspace]
+
+[dependencies]
+serde_json = "1"
+
+[lib]
+name = "jvm_params_core"
+path = "src/lib.rs"

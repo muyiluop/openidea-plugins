@@ -1,0 +1,32 @@
+[package]
+name = "openidea-plugin-jvm-params"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "JVM Default Parameters: injects JVM options and program arguments into OpenIDEA launch configurations"
+license = "MIT"
+repository = "https://github.com/muyiluop/openidea-plugins"
+
+# A plugin is its own workspace: keep it out of any parent one.
+[workspace]
+# The core crate is a workspace of its own on purpose: it has no SDK dependency,
+# so `cd crates/jvm-params-core && cargo test --offline` works without cloning the
+# SDK or having network access.
+exclude = ["crates/jvm-params-core"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The SDK of the release to build against. If this tag is not published yet, use
+#   openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", branch = "main" }
+# or point it at a checkout: `openidea-plugin new . --sdk <path/to/sdk/rust/openidea-plugin>`.
+openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.39" }
+jvm-params-core = { path = "crates/jvm-params-core" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"

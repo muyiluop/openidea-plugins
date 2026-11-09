@@ -1,0 +1,2 @@
+Placeholder so the directory the manifest points at exists before the first build.
+`openidea-plugin build` writes `plugin.wasm` here; the binary is git-ignored.
