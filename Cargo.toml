@@ -1,6 +1,6 @@
 [package]
 name = "openidea-plugin-jvm-params"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
 description = "JVM Default Parameters: injects JVM options and program arguments into OpenIDEA launch configurations"
@@ -17,13 +17,23 @@ exclude = ["crates/jvm-params-core"]
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+# Contributed run configurations (`register_plugin!(…, run_configurations)`).
+# Needs plugin API 1.4: the released SDK (tag `v0.1.39`, what the shipped IDE
+# reports as "plugin API 1.3.0") has no `wit/run.wit`, so this only compiles
+# against a newer commit — e.g.
+#   openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", rev = "4bc08a1…" }
+# Enabling it also needs `[[contributes.runConfigurations]]` in `plugin.toml` and
+# `engines.openidea = "^1.4"`; the default 1.3 build keeps everything else
+# working (preview, patching run configuration files, running in a terminal).
+api14 = []
+
 [dependencies]
-# The SDK to build against. Pinned to a commit: no release tag carries the
-# run-configuration API yet (`v0.1.39` still exports only API 1.3 and has no
-# `wit/run.wit`, so `register_plugin!(…, run_configurations)` does not compile
-# against it). Bump `rev` to a newer commit, or to a released `tag`, once one
-# ships this API — see `plugin.toml`'s `engines.openidea = "^1.4"`.
-openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", rev = "4bc08a1084701f1e6a07f1e54ab07ed83019a74d" }
+# The SDK to build against. `v0.1.39` is the newest release and the one matching
+# the shipped IDE's plugin API 1.3.0 — see `plugin.toml`'s
+# `engines.openidea = "^1.3"`.
+openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.39" }
 jvm-params-core = { path = "crates/jvm-params-core" }
 
 [profile.release]

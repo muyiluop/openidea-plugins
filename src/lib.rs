@@ -1,53 +1,59 @@
-//! OpenIDEA guest plugin "JVM Default Parameters".
+//! OpenIDEA guest plugin "JVM Default Parameters" — plugin API **1.3** adapter.
 //!
-//! Two features, both fed by the same settings and the same planner:
+//! Three commands, all fed by the same settings and the same planner (which live
+//! in `jvm_params_core`, and are unit tested without the SDK):
 //!
-//! 1. A `run-configurations` provider. For every trusted project that contains a
-//!    `pom.xml`, `build.gradle` or `build.gradle.kts`, it lists launch
-//!    configurations built from the user's VM options and program arguments:
-//!    `java -jar <boot jar>` when the jar is visible, otherwise the Maven
-//!    `spring-boot:run` or the Gradle `bootRun` wrapper command.
-//! 2. `jvm-params.apply-run-files`, which patches the VM options of the run
-//!    configuration files the IDE already reads (`*.run.xml`, `.vscode/launch.json`)
-//!    in place — the equivalent of IntelliJ's "JVM Default Options" for the
-//!    configurations the IDE owns itself.
+//! * `jvm-params.preview` — prints every launch the planner would produce for the
+//!   open project, one command line each.
+//! * `jvm-params.apply-run-files` — patches the VM options (and, when program
+//!   arguments are configured, the program arguments) of the run configuration
+//!   files the IDE already reads: `.run/*.run.xml`,
+//!   `.idea/runConfigurations/*.xml` and `.vscode/launch.json`. This is the
+//!   equivalent of IntelliJ's "JVM Default Options" for the configurations the
+//!   IDE owns itself.
+//! * `jvm-params.run` — starts a planned launch in an IDE terminal, so the
+//!   parameters are used without touching any file.
 //!
-//! Everything that can be unit tested lives in `jvm_params_core`; this crate is
-//! only the adapter to the SDK: settings in, `PluginRunConfiguration`s or patched
-//! files out.
+//! Why no `runConfigurations` provider: that contribution point needs plugin API
+//! 1.4, and the released IDE (v0.1.39) still reports plugin API **1.3.0** — a
+//! manifest with `engines.openidea = "^1.4"` is rejected at install time. The
+//! provider code is kept in [`provider`] behind the `api14` cargo feature so it
+//! can be switched on once a 1.4 host ships: see `Cargo.toml` for the two changes
+//! that takes.
 
 use jvm_params_core::detect::{self, DetectOptions, Files, Reader};
 use jvm_params_core::patch;
-use jvm_params_core::plan::{self, GeneratedConfig};
+use jvm_params_core::plan;
 use jvm_params_core::settings::{self, Defaults, SettingsSource};
 use openidea_plugin::{
-    host, register_plugin, Context, Error, Invocation, NotificationLevel, Plugin, PluginRunConfiguration,
-    Project, RunConfigurations,
+    host, register_plugin, Context, Error, Invocation, NotificationLevel, PickItem, Plugin, Project,
 };
 
-/// Output channel the preview and the patch report are written to.
-const OUTPUT: &str = "JVM Default Parameters";
+#[cfg(feature = "api14")]
+mod provider;
+
 const PREVIEW_COMMAND: &str = "jvm-params.preview";
 const APPLY_COMMAND: &str = "jvm-params.apply-run-files";
+const RUN_COMMAND: &str = "jvm-params.run";
+
+const TITLE: &str = "JVM Default Parameters";
 
 /// The plugin instance. It keeps no state: settings, detection and planning are
-/// cheap enough to redo for every refresh, and re-reading them is what makes a
-/// settings change take effect on the next Run-dialog listing.
+/// cheap enough to redo per command, and re-reading the settings is what makes a
+/// change take effect immediately.
 #[derive(Default)]
 pub struct JvmParams;
 
 impl Plugin for JvmParams {
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
         let defaults = load_defaults();
-        let mut report = format!(
-            "openidea-plugin-jvm-params (model {})\n{}\n",
-            jvm_params_core::MODEL_VERSION,
-            defaults.summary()
+        host::log(
+            openidea_plugin::LogLevel::Info,
+            &format!("jvm-default-parameters ready: {}", defaults.summary()),
         );
         for warning in &defaults.warnings {
-            report.push_str(&format!("warning: {warning}\n"));
+            host::log(openidea_plugin::LogLevel::Warn, &format!("jvm-default-parameters: {warning}"));
         }
-        let _ = host::output_append(OUTPUT, &report);
         Ok(())
     }
 
@@ -60,31 +66,13 @@ impl Plugin for JvmParams {
         match id {
             PREVIEW_COMMAND => Ok(Some(preview(ctx)?)),
             APPLY_COMMAND => Ok(Some(apply_run_files(ctx)?)),
+            RUN_COMMAND => Ok(Some(run_planned(ctx)?)),
             other => Err(format!("unknown command {other}").into()),
         }
     }
 }
 
-impl RunConfigurations for JvmParams {
-    fn configurations(&mut self, project_root: &str) -> Vec<PluginRunConfiguration> {
-        let defaults = load_defaults();
-        if !defaults.enabled || !defaults.provider.enabled || !defaults.has_parameters() {
-            return Vec::new();
-        }
-        let project = match open_project(project_root) {
-            Some(project) => project,
-            None => return Vec::new(),
-        };
-        let scan = scan_project(&project, project_root, &defaults);
-        let platform = plan::resolve_platform(project_root, &defaults);
-        plan::generate(&scan, &defaults, platform)
-            .into_iter()
-            .map(to_configuration)
-            .collect()
-    }
-}
-
-/// The preview: everything the planner would contribute, one command line each.
+/// Everything the planner would produce for the open project.
 fn preview(ctx: &Invocation) -> Result<String, Error> {
     let project = ctx.project().ok_or("open a project first")?;
     let root = project.root()?;
@@ -92,14 +80,11 @@ fn preview(ctx: &Invocation) -> Result<String, Error> {
     let scan = scan_project(&project, &root, &defaults);
     let platform = plan::resolve_platform(&root, &defaults);
     let text = plan::preview(&scan, &defaults, platform);
-    let _ = host::output_append(OUTPUT, &text);
-    let _ = host::output_append(OUTPUT, "\n");
-    let _ = host::output_reveal(OUTPUT);
     let count = plan::generate(&scan, &defaults, platform).len();
     host::notify(
         NotificationLevel::Info,
-        "JVM Default Parameters",
-        &format!("{count} configuration(s) planned for this project; the details are in the output tab."),
+        TITLE,
+        &format!("{count} configuration(s) planned for this project"),
     );
     Ok(text)
 }
@@ -109,15 +94,7 @@ fn apply_run_files(ctx: &Invocation) -> Result<String, Error> {
     let project = ctx.project().ok_or("open a project first")?;
     let root = project.root()?;
     let defaults = load_defaults();
-    if !defaults.enabled {
-        return Err("JVM Default Parameters is disabled in Settings › Plugins".into());
-    }
-    if !defaults.has_parameters() {
-        return Err(
-            "no parameters configured yet: set the VM options or the program arguments in Settings › Plugins › JVM Default Parameters"
-                .into(),
-        );
-    }
+    require_parameters(&defaults)?;
 
     let mut report = String::new();
     let mut updated = 0usize;
@@ -153,12 +130,15 @@ fn apply_run_files(ctx: &Invocation) -> Result<String, Error> {
             match project.write_file(&path, &patched.text) {
                 Ok(()) => {
                     updated += patched.updated;
-                    report.push_str(&format!("patched {path} ({} configuration(s))\n", patched.updated));
+                    report.push_str(&format!(
+                        "patched {path} ({} configuration(s))\n",
+                        patched.updated
+                    ));
                 }
                 Err(err) => {
                     failures.push(format!("{path}: {err}"));
                     hints.push(
-                        "allow project.write (and fs.write for the path) for this plugin in Settings › Plugins to patch files"
+                        "allow the optional `project.write` capability for this plugin in Settings › Plugins to patch files"
                             .to_string(),
                     );
                 }
@@ -167,7 +147,9 @@ fn apply_run_files(ctx: &Invocation) -> Result<String, Error> {
     }
 
     if updated == 0 && failures.is_empty() {
-        report.push_str("nothing to patch: no .run/*.run.xml, .idea/runConfigurations/*.xml or .vscode/launch.json found\n");
+        report.push_str(
+            "nothing to patch: no .run/*.run.xml, .idea/runConfigurations/*.xml or .vscode/launch.json found\n",
+        );
     }
     for failure in &failures {
         report.push_str(&format!("failed: {failure}\n"));
@@ -175,22 +157,79 @@ fn apply_run_files(ctx: &Invocation) -> Result<String, Error> {
     for hint in &hints {
         report.push_str(&format!("hint: {hint}\n"));
     }
-    let _ = host::output_append(OUTPUT, &report);
-    let _ = host::output_reveal(OUTPUT);
 
     if updated == 0 && !failures.is_empty() {
-        return Err(format!(
-            "could not patch any run configuration file ({} failure(s)); see the output tab",
-            failures.len()
-        )
-        .into());
+        host::notify(
+            NotificationLevel::Warning,
+            TITLE,
+            &format!("could not patch any run configuration file ({} failure(s))", failures.len()),
+        );
+        return Ok(report);
     }
     host::notify(
         NotificationLevel::Info,
-        "JVM Default Parameters",
+        TITLE,
         &format!("{updated} configuration(s) patched in {root}"),
     );
     Ok(report)
+}
+
+/// Starts a planned launch in an IDE terminal (no files touched).
+fn run_planned(ctx: &Invocation) -> Result<String, Error> {
+    let project = ctx.project().ok_or("open a project first")?;
+    let root = project.root()?;
+    let defaults = load_defaults();
+    require_parameters(&defaults)?;
+
+    let scan = scan_project(&project, &root, &defaults);
+    let platform = plan::resolve_platform(&root, &defaults);
+    let configs = plan::generate(&scan, &defaults, platform);
+    if configs.is_empty() {
+        return Err(
+            "nothing to run: enable the strategies you need in Settings › Plugins › JVM Default Parameters, or check that this project has a pom.xml / build.gradle with Spring Boot"
+                .into(),
+        );
+    }
+
+    let chosen = if configs.len() == 1 {
+        configs.into_iter().next().expect("length checked")
+    } else {
+        let items: Vec<PickItem> = configs
+            .iter()
+            .map(|config| PickItem::new(&config.id, &config.name).description(&config.argv_line()))
+            .collect();
+        let key = match host::pick("Run with JVM Default Parameters", &items)? {
+            Some(key) => key,
+            None => return Err(Error::Cancelled),
+        };
+        configs
+            .into_iter()
+            .find(|config| config.id == key)
+            .ok_or("the chosen configuration disappeared")?
+    };
+
+    // `open_terminal` always runs in the project root, so the module directory of
+    // a `bootJar` launch is only used in the preview (the jar path is absolute).
+    if let Err(err) = host::open_terminal(&chosen.name, &chosen.program, &chosen.args) {
+        return Err(Error::Failed(format!(
+            "could not start `{}` ({err}). Allow the optional `process:{}` capability for this project in Settings › Plugins, then try again.",
+            chosen.program, chosen.program
+        )));
+    }
+    Ok(format!("started `{}` in a terminal:\n{}\n", chosen.name, chosen.argv_line()))
+}
+
+fn require_parameters(defaults: &Defaults) -> Result<(), Error> {
+    if !defaults.enabled {
+        return Err("JVM Default Parameters is disabled in Settings › Plugins".into());
+    }
+    if !defaults.has_parameters() {
+        return Err(
+            "no parameters configured yet: set the VM options or the program arguments in Settings › Plugins › JVM Default Parameters"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 fn load_defaults() -> Defaults {
@@ -204,22 +243,6 @@ impl SettingsSource for HostSettings {
     fn setting(&self, key: &str) -> Option<String> {
         host::setting(key)
     }
-}
-
-/// The open project whose root is `project_root`, compared leniently because the
-/// host may pass `D:/x` where the project reports `D:\x`.
-fn open_project(project_root: &str) -> Option<Project> {
-    let wanted = normalize(project_root);
-    let projects = host::projects().ok()?;
-    projects
-        .into_iter()
-        .find(|project| project.root().map(|root| normalize(&root) == wanted).unwrap_or(false))
-}
-
-fn normalize(path: &str) -> String {
-    let normalized = path.replace('\\', "/");
-    let trimmed = normalized.trim_end_matches('/');
-    trimmed.to_ascii_lowercase()
 }
 
 /// Scans the project: build files, wrappers and jars through the project API,
@@ -260,28 +283,9 @@ impl Reader for ProjectReader<'_> {
     }
 }
 
-fn to_configuration(config: GeneratedConfig) -> PluginRunConfiguration {
-    PluginRunConfiguration {
-        id: config.id,
-        name: config.name,
-        program: config.program,
-        args: config.args,
-        cwd: config.cwd,
-        test: config.test,
-        framework: config.framework,
-    }
-}
-
+// Plugin API 1.3: no optional exports. With `--features api14` (and an SDK built
+// with `run.wit`) the provider is registered instead — see `provider.rs`.
+#[cfg(feature = "api14")]
 register_plugin!(JvmParams, run_configurations);
-
-#[cfg(test)]
-mod tests {
-    use super::normalize;
-
-    #[test]
-    fn normalizes_separators_case_and_trailing_slash() {
-        assert_eq!(normalize("D:\\work\\app\\"), "d:/work/app");
-        assert_eq!(normalize("d:/work/app"), "d:/work/app");
-        assert_eq!(normalize("/home/me/app/"), "/home/me/app");
-    }
-}
+#[cfg(not(feature = "api14"))]
+register_plugin!(JvmParams);

@@ -1,31 +1,32 @@
 id = "muyiluop.jvm-default-parameters"
 name = "JVM Default Parameters"
-version = "0.1.0"
-description = "Injects JVM options and program arguments into launch configurations: contributes Spring Boot run configurations built from your settings, and a command that patches the .run/*.xml, .idea/runConfigurations/*.xml and .vscode/launch.json files the IDE already reads."
+version = "0.2.0"
+description = "Injects JVM options and program arguments into launch configurations: patches the .run/*.xml, .idea/runConfigurations/*.xml and .vscode/launch.json files the IDE already reads, and can start a planned Spring Boot launch in a terminal."
 authors = ["muyiluop"]
 license = "MIT"
 categories = ["tools"]
 icon = "icon.svg"
-engines.openidea = "^1.4"
+engines.openidea = "^1.3"
 wasm = "dist/plugin.wasm"
 
-# `on-startup-finished` keeps the instance alive so the contributed run
-# configurations are available the first time the Run dialog is opened; the
-# commands also activate the plugin on their own.
 activation = [
-    "on-startup-finished",
     "on-command:jvm-params.preview",
     "on-command:jvm-params.apply-run-files",
+    "on-command:jvm-params.run",
 ]
 
 [capabilities]
-# `project.read` scans build files, wrappers and jars and reads run
-# configuration files. A contributed configuration is matched against an approved
-# program by the exact `program` string in the record, so every token the planner
-# can emit is declared here; the IDE pins the real file per project the first time
-# you approve it in Settings › Plugins.
-required = [
-    "project.read",
+# `project.read` scans build files, wrappers and jars and reads run configuration
+# files.
+#
+# The `process:` grants are optional: only "run in a terminal" starts a process,
+# and the IDE asks for each program separately (pinned per project) the first time
+# it is used. Declaring them here is what makes them approvable at all — the host
+# compares an approved program against the exact string in the launch record, so
+# every token the planner can emit is listed.
+required = ["project.read"]
+optional = [
+    "project.write",
     "process:java",
     "process:mvnw",
     "process:mvnw.cmd",
@@ -34,14 +35,6 @@ required = [
     "process:mvn",
     "process:gradle",
 ]
-# Only the "apply to run configuration files" command writes.
-optional = ["project.write"]
-
-# The marker files that make a project interesting. Literal relative paths at the
-# project root, one to sixteen of them; the provider is only called for a trusted
-# project that contains at least one.
-[[contributes.runConfigurations]]
-files = ["pom.xml", "build.gradle", "build.gradle.kts"]
 
 [contributes.settings]
 title = "JVM Default Parameters"
@@ -55,4 +48,9 @@ category = "JVM Parameters"
 [[contributes.commands]]
 id = "jvm-params.apply-run-files"
 title = "JVM Default Parameters: Apply Parameters to Run Configuration Files"
+category = "JVM Parameters"
+
+[[contributes.commands]]
+id = "jvm-params.run"
+title = "JVM Default Parameters: Run with Injected Parameters"
 category = "JVM Parameters"
