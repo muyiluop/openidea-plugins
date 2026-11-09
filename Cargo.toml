@@ -18,10 +18,12 @@ exclude = ["crates/jvm-params-core"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# The SDK of the release to build against. If this tag is not published yet, use
-#   openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", branch = "main" }
-# or point it at a checkout: `openidea-plugin new . --sdk <path/to/sdk/rust/openidea-plugin>`.
-openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.39" }
+# The SDK to build against. Pinned to a commit: no release tag carries the
+# run-configuration API yet (`v0.1.39` still exports only API 1.3 and has no
+# `wit/run.wit`, so `register_plugin!(…, run_configurations)` does not compile
+# against it). Bump `rev` to a newer commit, or to a released `tag`, once one
+# ships this API — see `plugin.toml`'s `engines.openidea = "^1.4"`.
+openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", rev = "4bc08a1084701f1e6a07f1e54ab07ed83019a74d" }
 jvm-params-core = { path = "crates/jvm-params-core" }
 
 [profile.release]

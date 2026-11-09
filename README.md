@@ -68,9 +68,11 @@ openidea-plugin link         # 把本目录写进 links.json（$OPENIDEA_PLUGINS
 
 然后在 IDE 中 **Settings › Plugins › Reload**。改代码后的循环同样只需 `openidea-plugin build` + Reload。
 
-> SDK 版本：`Cargo.toml` 里依赖 `tag = "v0.1.39"`。若该 tag 尚未发布，改成
-> `branch = "main"`，或在官方仓库 checkout 内用路径依赖：
-> `openidea-plugin new . --sdk <仓库>/sdk/rust/openidea-plugin`。
+> **SDK 版本**：`Cargo.toml` 依赖固定到一个 commit
+> `rev = "4bc08a1…"`（2026-11-09 的 `main`）。原因：目前**没有任何 release tag 带运行配置 API** ——
+> `v0.1.39` 的 SDK 还是 API 1.3，`wit/` 里没有 `run.wit`，`register_plugin!(…, run_configurations)`
+> 会直接编译失败（`no rules expected identifier run_configurations`）。等官方发布带 API 1.4 的 tag 后，
+> 把 `rev` 换成 `tag = "vX.Y.Z"` 即可；也可以指向本地 checkout：`openidea-plugin new . --sdk <仓库>/sdk/rust/openidea-plugin`。
 
 ### 只跑纯逻辑单测（不需要 SDK、不需要网络）
 
@@ -90,19 +92,28 @@ cargo test
 
 ```powershell
 # Windows：跑单测 → 编译 wasm → 组装运行时目录 → 打 zip
-powershell -ExecutionPolicy Bypass -File scripts/package.ps1
+pwsh -File scripts/package.ps1
 #   → dist/l0ng.jvm-default-parameters-0.1.0.zip
+#   → release/l0ng.jvm-default-parameters-0.1.0.zip（这一份进仓库，方便直接下载）
 
 # 只打包源码（给要自己编译的人）
-powershell -ExecutionPolicy Bypass -File scripts/package.ps1 -SourceOnly
+pwsh -File scripts/package.ps1 -SourceOnly
 #   → dist/l0ng.jvm-default-parameters-0.1.0-source.zip
+
+# 已有 dist/plugin.wasm 时只重新打包，不编译（改了清单/设置时用）
+pwsh -File scripts/package.ps1 -UseExistingWasm
 ```
 
 ```bash
 # Git Bash / Linux / macOS
 bash scripts/package.sh
 bash scripts/package.sh --source
+bash scripts/package.sh --existing-wasm
 ```
+
+> 用 **pwsh (PowerShell 7+)** 而不是 Windows PowerShell 5.1：5.1 的 .NET 写出的 zip 条目分隔符是 `\`，
+> 在 Linux/macOS 上解压会得到一个名字里带反斜杠的文件。脚本用
+> `[System.IO.Compression.ZipFile]::CreateFromDirectory` 生成 `/` 分隔的标准 zip。
 
 插件包的结构就是运行时的目录结构，压缩包根目录是插件目录本身：
 
@@ -121,20 +132,40 @@ l0ng.jvm-default-parameters/
 批准 `process:` 程序。脚本默认用 `openidea-plugin build` 产出 wasm，若该工具不在 PATH 上则退化为
 `cargo build --release --target wasm32-wasip2` 再复制到 `dist/plugin.wasm`。
 
+### 直接下载现成的插件包
+
+仓库里已经放了一份打好包的插件（含 wasm 组件），不需要自己编译：
+
+<https://github.com/muyiluop/openidea-plugins/raw/main/release/l0ng.jvm-default-parameters-0.1.0.zip>
+
+下载后按上面的步骤解压安装即可。`release/` 是对外分发的目录（跟着版本走），`dist/` 是本地构建输出、不进仓库。
+
+### 本机实测过的构建结果
+
+- `crates/jvm-params-core` 单测：**77 passed, 0 failed**（`cargo test --offline`）。
+- 用官方 SDK（`main` @ `4bc08a1`）编译到 `wasm32-wasip2`：**成功，无源码改动**；
+  产物 `openidea_plugin_jvm_params.wasm` 302,842 字节，文件头 `00 61 73 6d 0d 00 01 00`
+  = 组件模型（layer 1），并且二进制里确实带有 `openidea:plugin/run-configurations` 导出与
+  `jvm-params.preview` / `jvm-params.apply-run-files` 命令。
+- 安装到 IDE、点击运行、`process:` 批准这几步需要你在自己的机器上完成（无法在构建机上验证）。
+
 ### 发布到 GitHub
 
+仓库已发布：<https://github.com/muyiluop/openidea-plugins>（通过 SSH 推送；
+HTTP(S) 在受限网络里可能因证书被拦，SSH 更稳）。
+
 ```bash
-# 首次：在 GitHub 上新建空仓库（不要勾选 README/.gitignore），然后
-git remote add origin https://github.com/muyiluop/openidea-plugins.git
+git remote set-url origin git@github.com:muyiluop/openidea-plugins.git
 git push -u origin main
 git push origin --tags            # 推送 v0.1.0 标签
 
-# 之后打正式发布包
-powershell -ExecutionPolicy Bypass -File scripts/package.ps1
-# 把 dist/l0ng.jvm-default-parameters-<version>.zip 作为 release 附件上传
+# 之后每次发版
+pwsh -File scripts/package.ps1    # 产出 dist/ 与 release/ 两份 zip
+git add release/ && git commit -m "release: v<version>" && git push
+git tag -a v<version> -m "<version>" && git push origin v<version>
 ```
 
-仓库地址：<https://github.com/muyiluop/openidea-plugins>。
+也可以把 `release/*.zip` 作为 GitHub Release 的附件上传（网页上操作），二选一即可。
 
 ---
 
@@ -208,6 +239,7 @@ IDE 才会为它固定真实路径**（按项目固定，`pin.verify()` 在每�
 ├── src/lib.rs               # SDK 适配层：设置读取、项目扫描、命令实现、run-configurations 导出
 ├── scripts/package.ps1      # 打包：单测 → wasm → dist/<id>-<version>.zip
 ├── scripts/package.sh       # 同上（POSIX shell）
+├── release/                 # 对外分发的插件包（进仓库，可直接下载）
 ├── CHANGELOG.md
 ├── LICENSE
 ├── crates/jvm-params-core/  # 纯逻辑 + 单测（只依赖 serde_json）

@@ -3,6 +3,7 @@
 #
 #   bash scripts/package.sh            # build the wasm component and zip a plugin package
 #   bash scripts/package.sh --source   # zip the repository sources instead
+#   bash scripts/package.sh --existing-wasm  # repack the dist/plugin.wasm already present
 #
 # Produces dist/<id>-<version>.zip in the runtime layout (plugin.toml,
 # settings.schema.json, icon.svg, README.md, LICENSE, dist/plugin.wasm).
@@ -31,26 +32,30 @@ if [ "${1:-}" = "--source" ]; then
     exit 0
 fi
 
-echo "cargo test (crates/jvm-params-core)"
-(cd crates/jvm-params-core && cargo test --offline)
-
-if ! rustup target list --installed | grep -qx wasm32-wasip2; then
-    echo "installing the wasm32-wasip2 target"
-    rustup target add wasm32-wasip2
-fi
-
 wasm="dist/plugin.wasm"
-if command -v openidea-plugin >/dev/null 2>&1; then
-    echo "openidea-plugin build"
-    openidea-plugin build
+if [ "${1:-}" = "--existing-wasm" ]; then
+    echo "reusing $wasm (no build)"
 else
-    echo "openidea-plugin not on PATH; falling back to cargo build + copy" >&2
-    echo "install it with: cargo install --locked --git https://github.com/l0ng-ai/openidea ide-host --bin openidea-plugin" >&2
-    cargo build --release --target wasm32-wasip2
-    built="target/wasm32-wasip2/release/openidea_plugin_jvm_params.wasm"
-    [ -f "$built" ] || { echo "expected $built" >&2; exit 1; }
-    mkdir -p dist
-    cp "$built" "$wasm"
+    echo "cargo test (crates/jvm-params-core)"
+    (cd crates/jvm-params-core && cargo test --offline)
+
+    if ! rustup target list --installed | grep -qx wasm32-wasip2; then
+        echo "installing the wasm32-wasip2 target"
+        rustup target add wasm32-wasip2
+    fi
+
+    if command -v openidea-plugin >/dev/null 2>&1; then
+        echo "openidea-plugin build"
+        openidea-plugin build
+    else
+        echo "openidea-plugin not on PATH; falling back to cargo build + copy" >&2
+        echo "install it with: cargo install --locked --git https://github.com/l0ng-ai/openidea ide-host --bin openidea-plugin" >&2
+        cargo build --release --target wasm32-wasip2
+        built="target/wasm32-wasip2/release/openidea_plugin_jvm_params.wasm"
+        [ -f "$built" ] || { echo "expected $built" >&2; exit 1; }
+        mkdir -p dist
+        cp "$built" "$wasm"
+    fi
 fi
 [ -f "$wasm" ] || { echo "no wasm component at $wasm" >&2; exit 1; }
 echo "wasm component: $(wc -c <"$wasm") bytes"

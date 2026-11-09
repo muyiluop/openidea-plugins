@@ -16,6 +16,13 @@ param(
     # Package the repository contents instead of building a plugin: useful for
     # sharing code with someone who will build it themselves.
     [switch]$SourceOnly,
+    # Reuse the dist/plugin.wasm that is already there instead of rebuilding:
+    # for repackaging after a manifest/settings change, or on a machine where the
+    # Rust SDK cannot be fetched.
+    [switch]$UseExistingWasm,
+    # Do not also copy the package into release/ (the directory that is committed
+    # so it can be downloaded straight from GitHub).
+    [switch]$NoRelease,
     [string]$OutputDir = "dist"
 )
 
@@ -49,45 +56,52 @@ try {
             $exclude = @("target", ".git", "dist")
             Get-ChildItem -Force | Where-Object { $exclude -notcontains $_.Name } |
                 Copy-Item -Destination $stage -Recurse
-            Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
+            [System.IO.Compression.ZipFile]::CreateFromDirectory(
+                $stage, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
         }
         Write-Host ("source package: {0} ({1:N0} bytes)" -f $zip, (Get-Item $zip).Length)
         return
     }
 
-    # 2. The core crate is testable without the SDK or network access.
-    if (-not $SkipTests) {
-        Write-Host "cargo test (crates/jvm-params-core)"
-        Push-Location "crates/jvm-params-core"
-        try {
-            cargo test --offline
-            if ($LASTEXITCODE -ne 0) { throw "core tests failed" }
-        } finally { Pop-Location }
-    }
-
-    # 3. wasm32-wasip2 is required for `cargo build --target wasm32-wasip2`.
-    $targets = & rustup target list --installed
-    if ($targets -notcontains "wasm32-wasip2") {
-        Write-Host "installing the wasm32-wasip2 target"
-        rustup target add wasm32-wasip2
-        if ($LASTEXITCODE -ne 0) { throw "rustup target add wasm32-wasip2 failed" }
-    }
-
-    # 4. Prefer the official tool (it lands the file in dist/ and runs `check`).
+    # 2. Build the component: tests, the wasm target, then the compile itself.
+    #    -UseExistingWasm skips all of that and repacks dist/plugin.wasm as is.
     $wasm = Join-Path $root "dist/plugin.wasm"
-    if (Get-Command openidea-plugin -ErrorAction SilentlyContinue) {
-        Write-Host "openidea-plugin build"
-        openidea-plugin build
-        if ($LASTEXITCODE -ne 0) { throw "openidea-plugin build failed" }
+    if (-not $UseExistingWasm) {
+        # 2a. The core crate is testable without the SDK or network access.
+        if (-not $SkipTests) {
+            Write-Host "cargo test (crates/jvm-params-core)"
+            Push-Location "crates/jvm-params-core"
+            try {
+                cargo test --offline
+                if ($LASTEXITCODE -ne 0) { throw "core tests failed" }
+            } finally { Pop-Location }
+        }
+
+        # 2b. wasm32-wasip2 is required for `cargo build --target wasm32-wasip2`.
+        $targets = & rustup target list --installed
+        if ($targets -notcontains "wasm32-wasip2") {
+            Write-Host "installing the wasm32-wasip2 target"
+            rustup target add wasm32-wasip2
+            if ($LASTEXITCODE -ne 0) { throw "rustup target add wasm32-wasip2 failed" }
+        }
+
+        # 2c. Prefer the official tool (it lands the file in dist/ and runs `check`).
+        if (Get-Command openidea-plugin -ErrorAction SilentlyContinue) {
+            Write-Host "openidea-plugin build"
+            openidea-plugin build
+            if ($LASTEXITCODE -ne 0) { throw "openidea-plugin build failed" }
+        } else {
+            Write-Warning "openidea-plugin not on PATH; falling back to cargo build + copy."
+            Write-Warning "Install it with: cargo install --locked --git https://github.com/l0ng-ai/openidea ide-host --bin openidea-plugin"
+            cargo build --release --target wasm32-wasip2
+            if ($LASTEXITCODE -ne 0) { throw "cargo build --target wasm32-wasip2 failed" }
+            $built = "target/wasm32-wasip2/release/openidea_plugin_jvm_params.wasm"
+            if (-not (Test-Path $built)) { throw "expected $built, adjust the file name for the crate name" }
+            New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+            Copy-Item $built $wasm -Force
+        }
     } else {
-        Write-Warning "openidea-plugin not on PATH; falling back to cargo build + copy."
-        Write-Warning "Install it with: cargo install --locked --git https://github.com/l0ng-ai/openidea ide-host --bin openidea-plugin"
-        cargo build --release --target wasm32-wasip2
-        if ($LASTEXITCODE -ne 0) { throw "cargo build --target wasm32-wasip2 failed" }
-        $built = "target/wasm32-wasip2/release/openidea_plugin_jvm_params.wasm"
-        if (-not (Test-Path $built)) { throw "expected $built, adjust the file name for the crate name" }
-        New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-        Copy-Item $built $wasm -Force
+        Write-Host "reusing dist/plugin.wasm (no build)"
     }
     if (-not (Test-Path $wasm)) { throw "no wasm component at dist/plugin.wasm" }
     $size = (Get-Item $wasm).Length
@@ -104,11 +118,24 @@ try {
     Copy-Item $wasm (Join-Path $stage "dist/plugin.wasm")
 
     # 6. Zip the stage directory itself (the archive root is the plugin folder).
+    #    ZipFile.CreateFromDirectory writes `/` separators, so the archive also
+    #    extracts correctly on POSIX (Compress-Archive would write `\`).
     $zip = Join-Path $out "$id-$version.zip"
     if (Test-Path $zip) { Remove-Item $zip -Force }
-    Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    [System.IO.Compression.ZipFile]::CreateFromDirectory(
+        $stage, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
     $zipSize = (Get-Item $zip).Length
     Write-Host ("package: {0} ({1:N0} bytes)" -f $zip, $zipSize)
+
+    # 7. Keep a committed copy in release/ so the package is one click away on
+    #    GitHub (dist/ is build output and stays ignored).
+    if (-not $NoRelease) {
+        $release = Join-Path $root "release"
+        New-Item -ItemType Directory -Force -Path $release | Out-Null
+        Copy-Item $zip $release -Force
+        Write-Host ("release copy: {0}" -f (Join-Path $release (Split-Path -Leaf $zip)))
+    }
     Write-Host "share $zip; the recipient extracts it into %APPDATA%\ai.l0ng.openidea\plugins\"
 } finally {
     Pop-Location
