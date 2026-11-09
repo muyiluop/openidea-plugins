@@ -4,7 +4,8 @@
 `JVM Default Options` 加上 [JvmParameter](https://plugins.jetbrains.com/plugin/18022-jvm-parameter) 这类插件的组合：
 一处配置、每个项目/模块自动生效，也可一键写回已有的 run 配置文件。
 
-- 插件 id：`l0ng.jvm-default-parameters`
+- 插件 id：`muyiluop.jvm-default-parameters`（`<作者命名空间>.<名字>`；本插件与 IDE 作者 `l0ng` 无关，
+  官方自带插件用的是 `openidea.*` 命名空间，第三方用自己的 handle）
 - 引擎：`engines.openidea = "^1.4"`（用到 `runConfigurations` 贡献点，API 1.4 起提供）
 - 依赖：`openidea-plugin`（官方 Rust SDK，git 依赖）+ 本仓库内的 `crates/jvm-params-core`（纯逻辑，可离线单测）
 
@@ -93,12 +94,12 @@ cargo test
 ```powershell
 # Windows：跑单测 → 编译 wasm → 组装运行时目录 → 打 zip
 pwsh -File scripts/package.ps1
-#   → dist/l0ng.jvm-default-parameters-0.1.0.zip
-#   → release/l0ng.jvm-default-parameters-0.1.0.zip（这一份进仓库，方便直接下载）
+#   → dist/muyiluop.jvm-default-parameters-0.1.0.zip
+#   → release/muyiluop.jvm-default-parameters-0.1.0.zip（这一份进仓库，方便直接下载）
 
 # 只打包源码（给要自己编译的人）
 pwsh -File scripts/package.ps1 -SourceOnly
-#   → dist/l0ng.jvm-default-parameters-0.1.0-source.zip
+#   → dist/muyiluop.jvm-default-parameters-0.1.0-source.zip
 
 # 已有 dist/plugin.wasm 时只重新打包，不编译（改了清单/设置时用）
 pwsh -File scripts/package.ps1 -UseExistingWasm
@@ -118,7 +119,7 @@ bash scripts/package.sh --existing-wasm
 插件包的结构就是运行时的目录结构，压缩包根目录是插件目录本身：
 
 ```
-l0ng.jvm-default-parameters/
+muyiluop.jvm-default-parameters/
 ├── plugin.toml
 ├── settings.schema.json
 ├── icon.svg
@@ -136,7 +137,7 @@ l0ng.jvm-default-parameters/
 
 仓库里已经放了一份打好包的插件（含 wasm 组件），不需要自己编译：
 
-<https://github.com/muyiluop/openidea-plugins/raw/main/release/l0ng.jvm-default-parameters-0.1.0.zip>
+<https://github.com/muyiluop/openidea-plugins/raw/main/release/muyiluop.jvm-default-parameters-0.1.0.zip>
 
 下载后按上面的步骤解压安装即可。`release/` 是对外分发的目录（跟着版本走），`dist/` 是本地构建输出、不进仓库。
 

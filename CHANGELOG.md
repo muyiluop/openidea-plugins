@@ -15,6 +15,7 @@
 * 已知限制见 `README.md` 第 6 节（Gradle 无法从命令行注入 app 的 VM 参数、无 Debug、
   `.cmd` 包装器需按项目批准、`JAVA_TOOL_OPTIONS` 类环境变量无法通过运行记录注入）。
 * 打包：`scripts/package.ps1` / `package.sh` 产出运行时布局的 zip；仓库里的
-  `release/l0ng.jvm-default-parameters-0.1.0.zip` 是可直接下载安装的包。
+  `release/muyiluop.jvm-default-parameters-0.1.0.zip` 是可直接下载安装的包。
+* 插件 id 用作者自己的命名空间 muyiluop.jvm-default-parameters（l0ng 是 IDE 作者的手柄/包名，与本插件无关）。
 * SDK 依赖固定到 commit `4bc08a1`：现有 release tag（`v0.1.39`）仍是 API 1.3，没有
   `run.wit`，无法导出 run-configurations。

@@ -1,8 +1,8 @@
-id = "l0ng.jvm-default-parameters"
+id = "muyiluop.jvm-default-parameters"
 name = "JVM Default Parameters"
 version = "0.1.0"
 description = "Injects JVM options and program arguments into launch configurations: contributes Spring Boot run configurations built from your settings, and a command that patches the .run/*.xml, .idea/runConfigurations/*.xml and .vscode/launch.json files the IDE already reads."
-authors = ["l0ng"]
+authors = ["muyiluop"]
 license = "MIT"
 categories = ["tools"]
 icon = "icon.svg"
