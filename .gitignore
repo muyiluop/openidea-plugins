@@ -1,8 +1,12 @@
+# build output of each plugin
 target/
-crates/*/target/
-dist/*.wasm
-dist/*.gz
-.DS_Store
+*/target/
 
-dist/*.zip
+# packaged artifacts stay in release/ (committed); dist/ is local build output
+*/dist/*.wasm
+*/dist/*.gz
+*/dist/*.zip
+dist/
+
+.DS_Store
 .research/raw/

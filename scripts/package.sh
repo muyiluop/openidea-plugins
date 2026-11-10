@@ -1,83 +1,85 @@
 #!/usr/bin/env bash
-# Same as scripts/package.ps1, for a POSIX shell (Git Bash / WSL / Linux / macOS).
+# Builds one plugin of this repository and packages it into a shareable zip.
 #
-#   bash scripts/package.sh            # build the wasm component and zip a plugin package
-#   bash scripts/package.sh --source   # zip the repository sources instead
-#   bash scripts/package.sh --existing-wasm  # repack the dist/plugin.wasm already present
+#   ./scripts/package.sh jvm-default-parameters
+#   ./scripts/package.sh                    # works when there is exactly one plugin
 #
-# Produces dist/<id>-<version>.zip in the runtime layout (plugin.toml,
-# settings.schema.json, icon.svg, README.md, LICENSE, dist/plugin.wasm).
+# Steps: unit tests of the plugin's SDK-free core crate -> wasm component ->
+# staging directory in the runtime layout -> <plugin>/dist/<id>-<version>.zip
+# plus a copy in <repo>/release/.
+#
+# The zip is a plain plugin directory: extract it into
+#   ~/.local/share/ai.l0ng.openidea/plugins/<anything>/   (Linux)
+#   ~/Library/Application Support/ai.l0ng.openidea/plugins/<anything>/   (macOS)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$root"
+plugin="${1:-}"
 
-id="$(sed -n 's/^id[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' plugin.toml | head -n1)"
-version="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' plugin.toml | head -n1)"
-[ -n "$id" ] && [ -n "$version" ] || { echo "plugin.toml: cannot read id/version" >&2; exit 1; }
-echo "packaging $id $version"
-mkdir -p dist
-
-if [ "${1:-}" = "--source" ]; then
-    src_zip="dist/$id-$version-source.zip"
-    rm -f "$src_zip"
-    if [ -d .git ]; then
-        git archive --format=zip -v --prefix="$id-$version/" -o "$src_zip" HEAD
-    else
-        echo "not a git repository; zip the working tree instead" >&2
-        (cd .. && 7z a -tzip "$root/$src_zip" "$(basename "$root")" \
-            -xr'!target' -xr'!.git' -xr'!dist' -xr'!*.wasm' >/dev/null)
-    fi
-    echo "source package: $src_zip ($(wc -c <"$src_zip") bytes)"
-    exit 0
-fi
-
-wasm="dist/plugin.wasm"
-if [ "${1:-}" = "--existing-wasm" ]; then
-    echo "reusing $wasm (no build)"
-else
-    echo "cargo test (crates/jvm-params-core)"
-    (cd crates/jvm-params-core && cargo test --offline)
-
-    if ! rustup target list --installed | grep -qx wasm32-wasip2; then
-        echo "installing the wasm32-wasip2 target"
-        rustup target add wasm32-wasip2
-    fi
-
-    if command -v openidea-plugin >/dev/null 2>&1; then
-        echo "openidea-plugin build"
-        openidea-plugin build
-    else
-        echo "openidea-plugin not on PATH; falling back to cargo build + copy" >&2
-        echo "install it with: cargo install --locked --git https://github.com/l0ng-ai/openidea ide-host --bin openidea-plugin" >&2
-        cargo build --release --target wasm32-wasip2
-        built="target/wasm32-wasip2/release/openidea_plugin_jvm_params.wasm"
-        [ -f "$built" ] || { echo "expected $built" >&2; exit 1; }
-        mkdir -p dist
-        cp "$built" "$wasm"
-    fi
-fi
-[ -f "$wasm" ] || { echo "no wasm component at $wasm" >&2; exit 1; }
-echo "wasm component: $(wc -c <"$wasm") bytes"
-
-stage_root="target/package"
-stage="$stage_root/$id"
-rm -rf "$stage_root"
-mkdir -p "$stage/dist"
-for f in plugin.toml settings.schema.json icon.svg README.md LICENSE; do
-    [ -f "$f" ] && cp "$f" "$stage/$f"
-done
-cp "$wasm" "$stage/dist/plugin.wasm"
-
-mkdir -p dist
-zip_path="dist/$id-$version.zip"
-rm -f "$zip_path"
-if command -v zip >/dev/null 2>&1; then
-    (cd "$stage_root" && zip -qr "../$zip_path" "$id" -x '*.DS_Store')
-elif command -v 7z >/dev/null 2>&1; then
-    (cd "$stage_root" && 7z a -tzip "../$zip_path" "$id" >/dev/null)
-else
-    echo "neither zip nor 7z found" >&2
+# 0. Find the plugin: every repository folder with a plugin.toml is one.
+mapfile -t plugins < <(cd "$root" && for d in */; do
+  d="${d%/}"
+  [ -f "$d/plugin.toml" ] && echo "$d"
+done)
+if [ -z "$plugin" ]; then
+  if [ "${#plugins[@]}" -eq 1 ]; then
+    plugin="${plugins[0]}"
+  elif [ "${#plugins[@]}" -eq 0 ]; then
+    echo "no plugin found: a plugin is a repository folder containing plugin.toml" >&2
     exit 1
+  else
+    echo "more than one plugin; pass one of: ${plugins[*]}" >&2
+    exit 1
+  fi
 fi
-echo "package: $zip_path ($(wc -c <"$zip_path") bytes)"
+dir="$root/$plugin"
+[ -f "$dir/plugin.toml" ] || { echo "$plugin: no plugin.toml" >&2; exit 1; }
+
+cd "$dir"
+manifest="$(cat plugin.toml)"
+id="$(printf '%s\n' "$manifest" | sed -n 's/^id *= *"\([^"]*\)".*/\1/p' | head -n1)"
+version="$(printf '%s\n' "$manifest" | sed -n 's/^version *= *"\([^"]*\)".*/\1/p' | head -n1)"
+[ -n "$id" ] && [ -n "$version" ] || { echo "plugin.toml: cannot read id/version" >&2; exit 1; }
+echo "packaging $plugin -> $id $version"
+
+# 1. Tests of the SDK-free core crate (it has its own workspace, no SDK needed).
+if [ -d crates/jvm-params-core ]; then
+  echo "cargo test (crates/jvm-params-core)"
+  (cd crates/jvm-params-core && cargo test --offline)
+fi
+
+# 2. Build the wasm component.
+if command -v openidea-plugin >/dev/null 2>&1; then
+  echo "openidea-plugin build"
+  openidea-plugin build
+else
+  echo "warning: openidea-plugin not on PATH; falling back to cargo build" >&2
+  cargo build --release --target wasm32-wasip2
+  crate="$(sed -n 's/^name *= *"\([^"]*\)".*/\1/p' Cargo.toml | head -n1)"
+  mkdir -p dist
+  cp "target/wasm32-wasip2/release/${crate//-/_}.wasm" dist/plugin.wasm
+fi
+[ -f dist/plugin.wasm ] || { echo "no wasm component at $plugin/dist/plugin.wasm" >&2; exit 1; }
+echo "wasm component: $(wc -c < dist/plugin.wasm) bytes"
+
+# 3. Stage the runtime layout: exactly what the plugin needs at run time.
+stage="$dir/target/package/$id"
+rm -rf "$dir/target/package"
+mkdir -p "$stage/dist"
+for f in plugin.toml settings.schema.json icon.svg README.md; do
+  [ -f "$f" ] && cp "$f" "$stage/"
+done
+[ -f "$root/LICENSE" ] && cp "$root/LICENSE" "$stage/"
+cp dist/plugin.wasm "$stage/dist/plugin.wasm"
+
+# 4. Zip the stage directory itself (the archive root is the plugin folder).
+mkdir -p "$dir/dist"
+zip_path="$dir/dist/$id-$version.zip"
+rm -f "$zip_path"
+(cd "$stage/.." && zip -qr "$zip_path" "$id")
+echo "package: $zip_path ($(wc -c < "$zip_path") bytes)"
+
+# 5. Keep a committed copy in release/.
+mkdir -p "$root/release"
+cp "$zip_path" "$root/release/"
+echo "release copy: $root/release/$id-$version.zip"
