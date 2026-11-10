@@ -5,7 +5,7 @@
 
 | 插件 | 作用 | 下载 |
 | --- | --- | --- |
-| [jvm-default-parameters](jvm-default-parameters/) | 给 JVM / Spring Boot 启动配置追加 VM 参数和程序参数：写进项目 `.openidea/run.toml`，直接覆盖 IDE 自动识别出来的那些微服务启动项，不用一个个手改 | [0.4.0 zip](release/muyiluop.jvm-default-parameters-0.4.0.zip) |
+| [jvm-default-parameters](jvm-default-parameters/) | 给 JVM / Spring Boot 启动配置追加 VM 参数和程序参数：写进项目 `.openidea/run.toml`，直接覆盖 IDE 自动识别出来的那些微服务启动项，不用一个个手改；界面中英双语，参数默认锁定到本项目 | [0.5.0 zip](release/muyiluop.jvm-default-parameters-0.5.0.zip) |
 
 ## 安装插件
 

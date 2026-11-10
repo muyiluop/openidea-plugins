@@ -28,6 +28,7 @@
 use jvm_params_core::detect::{self, DetectOptions, Files, Reader};
 use jvm_params_core::patch;
 use jvm_params_core::plan;
+use jvm_params_core::project_settings;
 use jvm_params_core::run_toml;
 use jvm_params_core::settings::{self, Defaults, SettingsSource};
 use jvm_params_core::springboot;
@@ -37,6 +38,13 @@ use openidea_plugin::{
 
 #[cfg(feature = "api14")]
 mod provider;
+mod text;
+
+use text::Text;
+
+/// The plugin id, as `plugin.toml` declares it: it is the key of the plugin's
+/// table in the IDE's settings and the namespace of the run-configuration ids.
+const PLUGIN_ID: &str = "muyiluop.jvm-default-parameters";
 
 const PREVIEW_COMMAND: &str = "jvm-params.preview";
 const APPLY_COMMAND: &str = "jvm-params.apply-run-files";
@@ -101,7 +109,7 @@ fn preview(ctx: &Invocation) -> Result<String, Error> {
     host::notify(
         NotificationLevel::Info,
         TITLE,
-        &format!("{} application(s) would be saved in .openidea/run.toml", apps.len()),
+        &Text::new().would_save(apps.len()),
     );
     Ok(text)
 }
@@ -112,6 +120,7 @@ fn apply(ctx: &Invocation) -> Result<String, Error> {
     let root = project.root()?;
     let defaults = load_defaults();
     require_parameters(&defaults)?;
+    let text = Text::new();
 
     let mut report = String::new();
     let mut hints: Vec<String> = Vec::new();
@@ -126,13 +135,21 @@ fn apply(ctx: &Invocation) -> Result<String, Error> {
             0
         }
     };
-    report.push_str(&format!(
-        "{}: {} application(s) found, {saved} configuration(s) written\n",
-        run_toml::RUN_TOML,
-        apps.len()
-    ));
+    report.push_str(&format!("{}\n", text.saved(apps.len(), saved)));
 
-    // 2. The configuration files the IDE reads, for configurations that came
+    // 2. Pin the values to this project: the settings page opens in the global
+    //    scope, so without this a later global edit would change every project.
+    if defaults.pin_to_project {
+        match save_project_settings(&project, &defaults) {
+            Ok(true) => report.push_str(&format!("{}\n", text.pinned())),
+            Ok(false) => {}
+            Err(err) => failures.push(format!("{}: {err}", project_settings::PROJECT_SETTINGS)),
+        }
+    } else {
+        report.push_str(&format!("{}\n", text.pinning_off()));
+    }
+
+    // 3. The configuration files the IDE reads, for configurations that came
     //    from IntelliJ or VS Code.
     let mut updated = 0usize;
     // The IDE's own detected configurations are stored in `.idea/workspace.xml`,
@@ -154,14 +171,14 @@ fn apply(ctx: &Invocation) -> Result<String, Error> {
     candidates.dedup();
 
     for path in candidates {
-        let text = match project.read_file(&path) {
-            Ok(text) => text,
+        let content = match project.read_file(&path) {
+            Ok(content) => content,
             Err(err) => {
                 failures.push(format!("{path}: {err}"));
                 continue;
             }
         };
-        let patched = match patch::patch_file(&path, &text, &defaults) {
+        let patched = match patch::patch_file(&path, &content, &defaults) {
             Ok(patched) => patched,
             Err(err) => {
                 failures.push(format!("{path}: {err}"));
@@ -174,47 +191,64 @@ fn apply(ctx: &Invocation) -> Result<String, Error> {
         match project.write_file(&path, &patched.text) {
             Ok(()) => {
                 updated += patched.updated;
-                report.push_str(&format!(
-                    "patched {path} ({} configuration(s))\n",
-                    patched.updated
-                ));
+                report.push_str(&format!("{}\n", text.patched(&path, patched.updated)));
             }
             Err(err) => {
                 failures.push(format!("{path}: {err}"));
-                hints.push(
-                    "allow the optional `project.write` capability for this plugin in Settings › Plugins to write files"
-                        .to_string(),
-                );
+                hints.push(text.need_write_capability());
             }
         }
     }
 
-    if saved > 0 {
-        report.push_str(
-            "\nnext: open the run dialog — the configurations are listed right away; restart the IDE if an old one is still cached\n",
-        );
+    if saved > 0 || updated > 0 {
+        report.push_str(&format!("\n{}\n", text.next()));
     }
     for failure in &failures {
-        report.push_str(&format!("failed: {failure}\n"));
+        report.push_str(&format!("{}\n", text.failed(failure)));
     }
     for hint in &hints {
-        report.push_str(&format!("hint: {hint}\n"));
+        report.push_str(&format!("{}\n", text.hint(hint)));
     }
 
     if saved == 0 && updated == 0 && !failures.is_empty() {
         host::notify(
             NotificationLevel::Warning,
             TITLE,
-            &format!("could not write any configuration ({} failure(s))", failures.len()),
+            &text.nothing_written(failures.len()),
         );
         return Ok(report);
     }
     host::notify(
         NotificationLevel::Info,
         TITLE,
-        &format!("{saved} configuration(s) saved to {}", run_toml::RUN_TOML),
+        &text.done(saved, updated),
     );
     Ok(report)
+}
+
+/// Writes the plugin's values into `<project>/.openidea/settings.toml`.
+///
+/// The host reads a plugin's settings from the project's effective settings
+/// whenever the root is an open project, so pinning them here makes this project
+/// keep its values when the global ones change. Returns whether anything was
+/// written.
+fn save_project_settings(project: &Project, defaults: &Defaults) -> Result<bool, Error> {
+    let path = project_settings::PROJECT_SETTINGS;
+    let existing = if project.exists(path).unwrap_or(false) {
+        project
+            .read_file(path)
+            .map_err(|err| Error::Failed(format!("{path}: {err}")))?
+    } else {
+        String::new()
+    };
+    let (text, changed) = project_settings::upsert(&existing, PLUGIN_ID, defaults);
+    if !changed {
+        return Ok(false);
+    }
+    project
+        .write_file(path, &text)
+        .map_err(|err| Error::Failed(format!("{path}: {err}")))?;
+    Ok(true)
 }
 
 /// Writes the detected applications into `.openidea/run.toml`, keeping the

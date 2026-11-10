@@ -1,6 +1,6 @@
 id = "muyiluop.jvm-default-parameters"
 name = "JVM Default Parameters"
-version = "0.4.0"
+version = "0.5.0"
 description = "Appends your JVM options and program arguments to every launch configuration of the project: it saves the Spring Boot / Application configurations the IDE detects by itself into .openidea/run.toml (VM options included) and patches .idea/workspace.xml, .run/*.run.xml and .vscode/launch.json, so a multi-module or micro-service workspace is configured once instead of per configuration."
 authors = ["muyiluop"]
 license = "MIT"

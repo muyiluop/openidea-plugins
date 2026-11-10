@@ -29,6 +29,13 @@
       "default": "",
       "group": "Parameters"
     },
+    "jvmParams.pinToProject": {
+      "type": "boolean",
+      "title": "Pin these values to this project",
+      "description": "On by default. Apply writes the values into this project's .openidea/settings.toml, which wins over the global values: changing the global setting afterwards no longer changes this project. The plugin's settings page always opens in the Global scope (the IDE offers no way for a plugin to choose), so this is what keeps a project safe. Turn it off to follow the global values again.",
+      "default": true,
+      "group": "Parameters"
+    },
     "jvmParams.mode": {
       "type": "string",
       "title": "Merge mode",

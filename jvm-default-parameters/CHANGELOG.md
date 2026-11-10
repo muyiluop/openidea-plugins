@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 — 中英双语 + 默认锁定到本项目
+
+* **界面文字支持多语言（默认中文 + 英文）**：按宿主文档 §Translations 的机制，包里新增
+  `locales/<语言>.json`（英文原文 → 译文），提供 `zh.json`、`zh-CN.json`；`plugin.toml` 与
+  `settings.schema.json` 的标题/说明改回英文原文作为翻译键。命令标题、设置页标题、设置项
+  标题与说明随 IDE 语言切换。打包脚本顺带把 `locales/` 打进 zip。
+* **运行时文字也分中英**：新增 `src/text.rs`，按 `host::locale()`（`zh*` → 中文）生成提示与
+  报告，覆盖“已写入 N 条配置”“已改写 xxx.xml”“未能写入”等句子。
+* **默认固定到本项目**：插件设置页在 IDE 里**只能以 Global 打开**（`SettingsDialog.tsx`：
+  `defaultScope` 只对内置页面生效，插件页拿不到），在设置页里填的值默认是全局的，容易误改所有工程。
+  现在执行命令时会把生效值写进 `<项目>/.openidea/settings.toml` 的
+  `[plugins."muyiluop.jvm-default-parameters"]` 表（宿主的插件设置读取路径
+  `crates/ide-host/src/plugins/api.rs::plugin_settings` 优先取项目层），之后改全局值不再影响本项目。
+  新增设置 `jvmParams.pinToProject`（默认 `true`）可关掉。
+* 新增 `crates/jvm-params-core/src/project_settings.rs`：只在 TOML 里重写插件自己那张表，
+  别的表/注释原样保留，CRLF 感知，幂等，带 8 个单元测试。
+* `crates/jvm-params-core` 单元测试 **99 passed**；wasm 组件 381,007 字节（SDK `tag = "v0.1.39"`，API 1.3）。
+
 ## 0.4.0 — 参数终于真的到了「自动识别出来的启动配置」上
 
 0.3.0 改的是 `.idea/workspace.xml`，但那不是 IDE 左侧运行树的数据源：那些 Spring Boot 条目是

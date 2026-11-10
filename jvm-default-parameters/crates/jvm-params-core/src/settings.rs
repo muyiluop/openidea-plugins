@@ -23,6 +23,8 @@ pub const KEY_VM_OPTIONS: &str = "jvmParams.vmOptions";
 pub const KEY_PROGRAM_ARGS: &str = "jvmParams.programArgs";
 pub const KEY_MODE: &str = "jvmParams.mode";
 pub const KEY_SPRING_PROFILES: &str = "jvmParams.springProfiles";
+/// Whether Apply pins the values into the project's `.openidea/settings.toml`.
+pub const KEY_PIN_TO_PROJECT: &str = "jvmParams.pinToProject";
 pub const KEY_JAVA_EXECUTABLE: &str = "jvmParams.javaExecutable";
 pub const KEY_MAVEN_PROGRAM: &str = "jvmParams.mavenProgram";
 pub const KEY_GRADLE_PROGRAM: &str = "jvmParams.gradleProgram";
@@ -34,6 +36,30 @@ pub const KEY_PROVIDER_SPRING_BOOT_GRADLE: &str = "jvmParams.provider.springBoot
 pub const KEY_PROVIDER_BOOT_JAR: &str = "jvmParams.provider.bootJar";
 pub const KEY_PROVIDER_EMIT_ALL: &str = "jvmParams.provider.emitAllStrategies";
 pub const KEY_PROVIDER_MAX: &str = "jvmParams.provider.maxConfigurations";
+
+/// Every setting key the plugin reads, for tests and for the project pinning:
+/// a key that is written to the project but not read here would be dead weight.
+pub fn key_names() -> Vec<&'static str> {
+    vec![
+        KEY_ENABLED,
+        KEY_VM_OPTIONS,
+        KEY_PROGRAM_ARGS,
+        KEY_MODE,
+        KEY_SPRING_PROFILES,
+        KEY_PIN_TO_PROJECT,
+        KEY_JAVA_EXECUTABLE,
+        KEY_MAVEN_PROGRAM,
+        KEY_GRADLE_PROGRAM,
+        KEY_PLATFORM,
+        KEY_JAR_DIRS,
+        KEY_PROVIDER_ENABLED,
+        KEY_PROVIDER_SPRING_BOOT_MAVEN,
+        KEY_PROVIDER_SPRING_BOOT_GRADLE,
+        KEY_PROVIDER_BOOT_JAR,
+        KEY_PROVIDER_EMIT_ALL,
+        KEY_PROVIDER_MAX,
+    ]
+}
 
 /// Which generated launch configurations the provider offers in the Run dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,6 +100,9 @@ pub struct Defaults {
     pub mode: Mode,
     /// Spring profiles, applied as `-Dspring.profiles.active=…`.
     pub spring_profiles: Vec<String>,
+    /// Whether Apply writes the values into `<project>/.openidea/settings.toml`
+    /// so the project layer holds them and a global edit cannot change them.
+    pub pin_to_project: bool,
     /// Program used to launch a jar; `java` by default.
     pub java_executable: String,
     /// Override for the Maven program (empty = use the project's wrapper).
@@ -98,6 +127,7 @@ impl Defaults {
             program_args: Vec::new(),
             mode: Mode::Append,
             spring_profiles: Vec::new(),
+            pin_to_project: true,
             java_executable: "java".to_string(),
             maven_program: String::new(),
             gradle_program: String::new(),
@@ -158,6 +188,12 @@ pub fn load<S: SettingsSource + ?Sized>(source: &S) -> Defaults {
         spring_profiles: read_string(source, KEY_SPRING_PROFILES)
             .map(|s| split_profiles(&s))
             .unwrap_or_default(),
+        pin_to_project: read_bool(
+            source,
+            KEY_PIN_TO_PROJECT,
+            base.pin_to_project,
+            &mut warnings,
+        ),
         java_executable: read_string(source, KEY_JAVA_EXECUTABLE)
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())

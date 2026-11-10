@@ -23,6 +23,7 @@ pub mod jsonc;
 pub mod merge;
 pub mod patch;
 pub mod plan;
+pub mod project_settings;
 pub mod run_toml;
 pub mod settings;
 pub mod shell;

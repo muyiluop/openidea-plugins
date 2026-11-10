@@ -149,6 +149,8 @@ try {
     foreach ($f in @("plugin.toml", "settings.schema.json", "icon.svg", "README.md")) {
         if (Test-Path $f) { Copy-Item $f (Join-Path $stage $f) }
     }
+    # Translations: locales/<tag>.json, read by the host, one file per language.
+    if (Test-Path "locales") { Copy-Item "locales" (Join-Path $stage "locales") -Recurse }
     if (Test-Path $license) { Copy-Item $license (Join-Path $stage "LICENSE") }
     Copy-Item $wasm (Join-Path $stage "dist/plugin.wasm")
 

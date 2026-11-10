@@ -1,0 +1,20 @@
+{
+  "JVM Default Parameters": "JVM 默认参数",
+  "Appends your JVM options and program arguments to every launch configuration of the project: it saves the Spring Boot / Application configurations the IDE detects by itself into .openidea/run.toml (VM options included) and patches .idea/workspace.xml, .run/*.run.xml and .vscode/launch.json, so a multi-module or micro-service workspace is configured once instead of per configuration.": "把 JVM 参数和程序参数追加到项目里所有启动配置上：IDE 自动识别出来的 Spring Boot / Application 配置会被写进 .openidea/run.toml（带 VM 参数），同时改写 .idea/workspace.xml、.run/*.run.xml 和 .vscode/launch.json，所以多模块/微服务项目只需要配一次，不用每个配置手动改。",
+  "JVM Parameters: Apply to All Launch Configurations": "JVM 参数：应用到所有启动配置",
+  "JVM Parameters: Preview": "JVM 参数：预览",
+  "JVM Parameters": "JVM 参数",
+  "Parameters": "参数",
+  "Enable JVM Default Parameters": "启用 JVM 默认参数",
+  "Master switch. When off, nothing is written: no .openidea/run.toml entry, no configuration file is patched.": "总开关。关掉之后什么都不写：不写 .openidea/run.toml，也不改写任何配置文件。",
+  "VM options": "JVM 参数（VM options）",
+  "The JVM options appended to every launch configuration of the project, on one line. Quotes are allowed for values with spaces. Example: -Xmx2g -Xms512m -XX:+UseG1GC -Dfile.encoding=UTF-8": "追加到项目每个启动配置上的 JVM 参数，写在一行里。带空格的值可以加引号。示例：-Xmx2g -Xms512m -XX:+UseG1GC -Dfile.encoding=UTF-8",
+  "Program arguments": "程序参数",
+  "The application arguments appended to every launch configuration, on one line. Leave empty to only inject JVM options. Example: --server.port=8081 --spring.profiles.active=dev": "追加到每个启动配置上的程序参数，写在一行里。留空则只注入 JVM 参数。示例：--server.port=8081 --spring.profiles.active=dev",
+  "Spring profiles": "Spring 环境（profiles）",
+  "Comma separated profiles, appended as --spring.profiles.active=… after the main class of every saved configuration.": "用逗号分隔的 profile，会以 --spring.profiles.active=… 的形式追加在每个已保存配置的主类后面。",
+  "Pin these values to this project": "把这几个参数固定到本项目",
+  "On by default. Apply writes the values into this project's .openidea/settings.toml, which wins over the global values: changing the global setting afterwards no longer changes this project. The plugin's settings page always opens in the Global scope (the IDE offers no way for a plugin to choose), so this is what keeps a project safe. Turn it off to follow the global values again.": "默认开启。点“应用到所有启动配置”时会把这几项写进本项目的 .openidea/settings.toml，项目里的值优先于全局值：之后再改全局设置也不会影响本项目。插件的设置页总是以“全局”打开（IDE 没有给插件选择默认范围的接口），所以靠这个开关保护单个项目。关掉则重新跟随全局值。",
+  "Merge mode": "合并方式",
+  "append keeps every value a configuration already sets and only fills the gaps; override replaces the value of a JVM switch the configuration already sets. Both keep the order the configuration already has, and both are idempotent.": "append：保留配置里已有的值，只补齐缺的；override：覆盖配置里已有的同名 JVM 开关。两种方式都保持配置原来的顺序，并且重复执行结果不变。"
+}

@@ -39,6 +39,7 @@ OpenIDEA 左侧运行树里的 `AttachAiApplication`、`AttachDmaApplication`、
 | `.idea/workspace.xml` | 补齐 IntelliJ 时代留下的 `<option name="VM_PARAMETERS">`（`.idea/` 常被 gitignore，按字面路径读写） |
 | `.run/*.run.xml`、`.idea/runConfigurations/*.xml` | 同上，针对显式创建的 JetBrains 配置 |
 | `.vscode/launch.json` | `type: "java"` 的 `vmArgs` / `args` |
+| `.openidea/settings.toml` | 把这几项参数固定到本项目（见下面“作用域”一节），之后全局值改不动它 |
 
 `.openidea/run.toml` 里生成的一条长这样（和 IDE 自己的 JetBrains 导入器写法一致，
 `src/features/run/jvmTypes.ts` 会把它解析回表单字段，`${classpath}` 由 IDE 在启动前解析）：
@@ -75,9 +76,43 @@ id 的格式 `application:<模块目录>:<主类>`（根构建只有 `applicatio
 | `jvmParams.programArgs` | 空 | 追加的程序参数（一行） |
 | `jvmParams.springProfiles` | 空 | 逗号分隔，生成 `--spring.profiles.active=` |
 | `jvmParams.mode` | `append` | `append` / `override` |
+| `jvmParams.pinToProject` | `true` | 执行时把上面几项写进本项目的 `.openidea/settings.toml`，从此全局值改不动本项目 |
 
-设置是**项目级优先**的：给每个工程配各自的参数（`Settings` 右上角切 Project 作用域），
-没有项目级值时用全局值。
+## 作用域：默认固定到本项目
+
+OpenIDEA 插件的设置页**总是以 Global 打开**（IDE 没给插件指定默认作用域的接口，
+`SettingsDialog.tsx` 里 `defaultScope` 只对内置页面生效），所以在设置页里改的东西默认是全局的，
+很容易一个手滑把每个工程都改了。
+
+本插件的处理办法：**每次执行命令时**（`pinToProject` 默认开启）把当前生效的几项值写进
+
+```toml
+# <项目>/.openidea/settings.toml
+[plugins."muyiluop.jvm-default-parameters"]
+"jvmParams.enabled" = true
+"jvmParams.vmOptions" = "-Dspring.cloud.nacos.config.namespace=new_dev_local"
+"jvmParams.programArgs" = ""
+"jvmParams.springProfiles" = ""
+"jvmParams.mode" = "append"
+"jvmParams.pinToProject" = true
+```
+
+主机读插件设置时优先读**项目层**（`crates/ide-host/src/plugins/api.rs::plugin_settings`：
+根目录是打开的工程就用工程的设置），所以写进去之后本项目就固定了，之后改全局值不会影响它。
+这个表和 IDE 自己的设置共用一个文件，插件只重写自己的那张表，别的行原样保留。
+
+想重新跟随全局值：把 `jvmParams.pinToProject` 关掉，再手工删掉 `.openidea/settings.toml` 里
+`[plugins."muyiluop.jvm-default-parameters"]` 这一段。
+
+## 多语言
+
+界面文字（命令标题、设置项标题/说明、分类）由主机的翻译机制处理：包里 `locales/<语言>.json`
+是「英文原文 → 译文」的对照表，随 IDE 语言自动切换。
+
+* 提供：`locales/zh.json`（简体）、`locales/zh-CN.json`。
+* 运行时的提示/报告文字是插件自己拼的，按 `host::locale()` 判断中英文（`src/text.rs`）。
+* 想加语言：复制 `locales/zh.json`，改名为目标语言标记（如 `ja.json`），翻译右边即可；
+  键必须和 `plugin.toml` / `settings.schema.json` 里的英文原文**逐字一致**。
 
 ## 能力
 
@@ -101,7 +136,7 @@ id 的格式 `application:<模块目录>:<主类>`（根构建只有 `applicatio
 
 ### 用现成的插件包
 
-1. 下载仓库根目录的 `release/muyiluop.jvm-default-parameters-0.4.0.zip`。
+1. 下载仓库根目录的 `release/muyiluop.jvm-default-parameters-0.5.0.zip`。
 2. 解压到插件目录，得到 `plugins/muyiluop.jvm-default-parameters/{plugin.toml,dist/plugin.wasm,…}`：
 
    ```text
