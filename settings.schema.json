@@ -4,117 +4,38 @@
     "jvmParams.enabled": {
       "type": "boolean",
       "title": "Enable JVM Default Parameters",
-      "description": "Master switch. When off, no configuration is contributed and no file is patched.",
+      "description": "Master switch. When off, no launch configuration file is patched.",
       "default": true,
       "group": "Parameters"
     },
     "jvmParams.vmOptions": {
       "type": "string",
       "title": "VM options",
-      "description": "The JVM options injected into every configuration, on one line, quoted runs allowed, for example: -Xmx2g -Xms512m -XX:+UseG1GC -Dfile.encoding=UTF-8",
+      "description": "The JVM options appended to every launch configuration of the project, on one line. Quotes are allowed for values with spaces. Example: -Xmx2g -Xms512m -XX:+UseG1GC -Dfile.encoding=UTF-8",
       "default": "",
       "group": "Parameters"
     },
     "jvmParams.programArgs": {
       "type": "string",
       "title": "Program arguments",
-      "description": "The application arguments injected into every configuration, on one line, for example: --server.port=8081 --spring.profiles.active=dev",
+      "description": "The application arguments appended to every launch configuration, on one line. Leave empty to only inject JVM options. Example: --server.port=8081 --spring.profiles.active=dev",
       "default": "",
       "group": "Parameters"
     },
     "jvmParams.springProfiles": {
       "type": "string",
       "title": "Spring profiles",
-      "description": "Comma separated profiles, injected as -Dspring.profiles.active=… before your VM options are merged.",
+      "description": "Comma separated profiles, appended as -Dspring.profiles.active=… to the VM options.",
       "default": "",
       "group": "Parameters"
     },
     "jvmParams.mode": {
       "type": "string",
       "title": "Merge mode",
-      "description": "append keeps every value a run configuration already sets and only fills the gaps; override replaces a value that uses the same JVM switch. Both keep the order the configuration already has.",
+      "description": "append keeps every value a configuration already sets and only fills the gaps; override replaces the value of a JVM switch the configuration already sets. Both keep the order the configuration already has, and both are idempotent.",
       "enum": ["append", "override"],
       "default": "append",
       "group": "Parameters"
-    },
-    "jvmParams.javaExecutable": {
-      "type": "string",
-      "title": "java executable",
-      "description": "Program used to launch a jar. Keep 'java' to let the IDE resolve it on PATH and approve it once; an absolute path cannot be approved for a contributed configuration and would hide the jar configurations.",
-      "default": "java",
-      "group": "Launch"
-    },
-    "jvmParams.platform": {
-      "type": "string",
-      "title": "Platform",
-      "description": "Which wrapper flavor to plan for. 'auto' reads it from the project path, which is the only signal a sandboxed plugin has.",
-      "enum": ["auto", "windows", "unix"],
-      "default": "auto",
-      "group": "Launch"
-    },
-    "jvmParams.mavenProgram": {
-      "type": "string",
-      "title": "Maven program override",
-      "description": "Leave empty to use the project's mvnw.cmd / mvnw wrapper. Set a bare program name such as mvn to use a global Maven instead; the name must be one the plugin declares, so the IDE can approve it.",
-      "default": "",
-      "group": "Launch"
-    },
-    "jvmParams.gradleProgram": {
-      "type": "string",
-      "title": "Gradle program override",
-      "description": "Leave empty to use the project's gradlew.bat / gradlew wrapper, or set a bare name such as gradle.",
-      "default": "",
-      "group": "Launch"
-    },
-    "jvmParams.jarSearchDirs": {
-      "type": "array",
-      "title": "Extra jar directories",
-      "description": "Directories searched for a runnable jar in addition to target and build/libs, relative to each module.",
-      "items": { "type": "string" },
-      "default": [],
-      "group": "Launch"
-    },
-    "jvmParams.provider.enabled": {
-      "type": "boolean",
-      "title": "Contribute run configurations",
-      "description": "Offer generated configurations in the Run dialog. Turn off to only use the file patching command.",
-      "default": true,
-      "group": "Run dialog"
-    },
-    "jvmParams.provider.bootJar": {
-      "type": "boolean",
-      "title": "java -jar configurations",
-      "description": "Contribute a configuration that runs the module's jar with your VM options. Only possible when the jar is visible to the plugin.",
-      "default": true,
-      "group": "Run dialog"
-    },
-    "jvmParams.provider.springBootMaven": {
-      "type": "boolean",
-      "title": "Maven spring-boot:run configurations",
-      "description": "Contribute wrapper configurations that pass your VM options as -Dspring-boot.run.jvmArguments and your program arguments as -Dspring-boot.run.arguments.",
-      "default": true,
-      "group": "Run dialog"
-    },
-    "jvmParams.provider.springBootGradle": {
-      "type": "boolean",
-      "title": "Gradle bootRun configurations",
-      "description": "Contribute gradlew bootRun configurations. Gradle only takes program arguments from the command line, so these carry your program arguments and say so in their name.",
-      "default": true,
-      "group": "Run dialog"
-    },
-    "jvmParams.provider.emitAllStrategies": {
-      "type": "boolean",
-      "title": "Every applicable strategy",
-      "description": "Contribute every strategy a module supports instead of the first applicable one.",
-      "default": false,
-      "group": "Run dialog"
-    },
-    "jvmParams.provider.maxConfigurations": {
-      "type": "integer",
-      "title": "Maximum configurations",
-      "description": "Upper bound on the configurations contributed for one project.",
-      "default": 24,
-      "group": "Run dialog"
     }
   }
 }

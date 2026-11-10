@@ -1,18 +1,19 @@
 //! OpenIDEA guest plugin "JVM Default Parameters" — plugin API **1.3** adapter.
 //!
-//! Three commands, all fed by the same settings and the same planner (which live
+//! Two commands, all fed by the same settings and the same planner (which live
 //! in `jvm_params_core`, and are unit tested without the SDK):
 //!
-//! * `jvm-params.preview` — prints every launch the planner would produce for the
-//!   open project, one command line each.
-//! * `jvm-params.apply-run-files` — patches the VM options (and, when program
-//!   arguments are configured, the program arguments) of the run configuration
-//!   files the IDE already reads: `.run/*.run.xml`,
-//!   `.idea/runConfigurations/*.xml` and `.vscode/launch.json`. This is the
-//!   equivalent of IntelliJ's "JVM Default Options" for the configurations the
-//!   IDE owns itself.
-//! * `jvm-params.run` — starts a planned launch in an IDE terminal, so the
-//!   parameters are used without touching any file.
+//! * `jvm-params.apply-run-files` — the main command. Writes the configured VM
+//!   options (and, when program arguments are configured, the program
+//!   arguments) into every launch configuration the IDE already reads:
+//!   `.idea/workspace.xml` (the IDE's own auto-detected Spring Boot / Application
+//!   / JUnit configurations — patched by literal path because `.idea/` is
+//!   normally git-ignored), `.run/*.run.xml`, `.idea/runConfigurations/*.xml`
+//!   and `.vscode/launch.json`. One command, every configuration in the
+//!   workspace, no per-configuration editing: this is the IntelliJ "JVM Default
+//!   Options" behaviour.
+//! * `jvm-params.preview` — prints what would be launched and which
+//!   configuration files would be patched, without touching anything.
 //!
 //! Why no `runConfigurations` provider: that contribution point needs plugin API
 //! 1.4, and the released IDE (v0.1.39) still reports plugin API **1.3.0** — a
@@ -26,7 +27,7 @@ use jvm_params_core::patch;
 use jvm_params_core::plan;
 use jvm_params_core::settings::{self, Defaults, SettingsSource};
 use openidea_plugin::{
-    host, register_plugin, Context, Error, Invocation, NotificationLevel, PickItem, Plugin, Project,
+    host, register_plugin, Context, Error, Invocation, NotificationLevel, Plugin, Project,
 };
 
 #[cfg(feature = "api14")]
@@ -34,7 +35,6 @@ mod provider;
 
 const PREVIEW_COMMAND: &str = "jvm-params.preview";
 const APPLY_COMMAND: &str = "jvm-params.apply-run-files";
-const RUN_COMMAND: &str = "jvm-params.run";
 
 const TITLE: &str = "JVM Default Parameters";
 
@@ -66,7 +66,6 @@ impl Plugin for JvmParams {
         match id {
             PREVIEW_COMMAND => Ok(Some(preview(ctx)?)),
             APPLY_COMMAND => Ok(Some(apply_run_files(ctx)?)),
-            RUN_COMMAND => Ok(Some(run_planned(ctx)?)),
             other => Err(format!("unknown command {other}").into()),
         }
     }
@@ -92,7 +91,6 @@ fn preview(ctx: &Invocation) -> Result<String, Error> {
 /// Patches the VM options of every run configuration file the IDE reads.
 fn apply_run_files(ctx: &Invocation) -> Result<String, Error> {
     let project = ctx.project().ok_or("open a project first")?;
-    let root = project.root()?;
     let defaults = load_defaults();
     require_parameters(&defaults)?;
 
@@ -101,54 +99,68 @@ fn apply_run_files(ctx: &Invocation) -> Result<String, Error> {
     let mut failures: Vec<String> = Vec::new();
     let mut hints: Vec<String> = Vec::new();
 
+    // The IDE's own detected configurations (Spring Boot, Application, JUnit)
+    // are stored in `.idea/workspace.xml`, which `find_files` skips because
+    // `.idea/` is usually ignored — so it is patched by its literal path.
+    let mut candidates: Vec<String> = Vec::new();
+    for literal in patch::literal_run_files() {
+        if project.exists(literal).unwrap_or(false) {
+            candidates.push(literal.to_string());
+        }
+    }
     for glob in patch::run_file_globs() {
-        let paths = match project.find_files(glob, 64) {
-            Ok(paths) => paths,
+        match project.find_files(glob, 64) {
+            Ok(paths) => candidates.extend(paths),
+            Err(err) => failures.push(format!("{glob}: {err}")),
+        }
+    }
+    candidates.sort();
+    candidates.dedup();
+
+    for path in candidates {
+        let text = match project.read_file(&path) {
+            Ok(text) => text,
             Err(err) => {
-                failures.push(format!("{glob}: {err}"));
+                failures.push(format!("{path}: {err}"));
                 continue;
             }
         };
-        for path in paths {
-            let text = match project.read_file(&path) {
-                Ok(text) => text,
-                Err(err) => {
-                    failures.push(format!("{path}: {err}"));
-                    continue;
-                }
-            };
-            let patched = match patch::patch_file(&path, &text, &defaults) {
-                Ok(patched) => patched,
-                Err(err) => {
-                    failures.push(format!("{path}: {err}"));
-                    continue;
-                }
-            };
-            if patched.updated == 0 {
+        let patched = match patch::patch_file(&path, &text, &defaults) {
+            Ok(patched) => patched,
+            Err(err) => {
+                failures.push(format!("{path}: {err}"));
                 continue;
             }
-            match project.write_file(&path, &patched.text) {
-                Ok(()) => {
-                    updated += patched.updated;
-                    report.push_str(&format!(
-                        "patched {path} ({} configuration(s))\n",
-                        patched.updated
-                    ));
-                }
-                Err(err) => {
-                    failures.push(format!("{path}: {err}"));
-                    hints.push(
-                        "allow the optional `project.write` capability for this plugin in Settings › Plugins to patch files"
-                            .to_string(),
-                    );
-                }
+        };
+        if patched.updated == 0 {
+            continue;
+        }
+        match project.write_file(&path, &patched.text) {
+            Ok(()) => {
+                updated += patched.updated;
+                report.push_str(&format!(
+                    "patched {path} ({} configuration(s))\n",
+                    patched.updated
+                ));
+            }
+            Err(err) => {
+                failures.push(format!("{path}: {err}"));
+                hints.push(
+                    "allow the optional `project.write` capability for this plugin in Settings › Plugins to patch files"
+                        .to_string(),
+                );
             }
         }
     }
 
     if updated == 0 && failures.is_empty() {
         report.push_str(
-            "nothing to patch: no .run/*.run.xml, .idea/runConfigurations/*.xml or .vscode/launch.json found\n",
+            "nothing to patch: no .idea/workspace.xml, .run/*.run.xml, .idea/runConfigurations/*.xml or .vscode/launch.json found\n",
+        );
+    }
+    if updated > 0 {
+        report.push_str(
+            "\nnext: reload the project (File › Reload Project, or restart the IDE) so the IDE picks up the patched .idea/workspace.xml\n",
         );
     }
     for failure in &failures {
@@ -169,54 +181,9 @@ fn apply_run_files(ctx: &Invocation) -> Result<String, Error> {
     host::notify(
         NotificationLevel::Info,
         TITLE,
-        &format!("{updated} configuration(s) patched in {root}"),
+        &format!("{updated} configuration(s) patched — reload the project to apply"),
     );
     Ok(report)
-}
-
-/// Starts a planned launch in an IDE terminal (no files touched).
-fn run_planned(ctx: &Invocation) -> Result<String, Error> {
-    let project = ctx.project().ok_or("open a project first")?;
-    let root = project.root()?;
-    let defaults = load_defaults();
-    require_parameters(&defaults)?;
-
-    let scan = scan_project(&project, &root, &defaults);
-    let platform = plan::resolve_platform(&root, &defaults);
-    let configs = plan::generate(&scan, &defaults, platform);
-    if configs.is_empty() {
-        return Err(
-            "nothing to run: enable the strategies you need in Settings › Plugins › JVM Default Parameters, or check that this project has a pom.xml / build.gradle with Spring Boot"
-                .into(),
-        );
-    }
-
-    let chosen = if configs.len() == 1 {
-        configs.into_iter().next().expect("length checked")
-    } else {
-        let items: Vec<PickItem> = configs
-            .iter()
-            .map(|config| PickItem::new(&config.id, &config.name).description(&config.argv_line()))
-            .collect();
-        let key = match host::pick("Run with JVM Default Parameters", &items)? {
-            Some(key) => key,
-            None => return Err(Error::Cancelled),
-        };
-        configs
-            .into_iter()
-            .find(|config| config.id == key)
-            .ok_or("the chosen configuration disappeared")?
-    };
-
-    // `open_terminal` always runs in the project root, so the module directory of
-    // a `bootJar` launch is only used in the preview (the jar path is absolute).
-    if let Err(err) = host::open_terminal(&chosen.name, &chosen.program, &chosen.args) {
-        return Err(Error::Failed(format!(
-            "could not start `{}` ({err}). Allow the optional `process:{}` capability for this project in Settings › Plugins, then try again.",
-            chosen.program, chosen.program
-        )));
-    }
-    Ok(format!("started `{}` in a terminal:\n{}\n", chosen.name, chosen.argv_line()))
 }
 
 fn require_parameters(defaults: &Defaults) -> Result<(), Error> {

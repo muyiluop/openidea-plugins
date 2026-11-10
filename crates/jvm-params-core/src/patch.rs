@@ -30,6 +30,18 @@ pub fn run_file_globs() -> Vec<&'static str> {
 /// because it is not a run configuration file as such.
 pub const WORKSPACE_XML: &str = ".idea/workspace.xml";
 
+/// Run-configuration files whose names are known up front.
+///
+/// `Project::find_files` walks the project the way the project view does and
+/// skips ignored files, and `.idea/` is in the `.gitignore` of nearly every
+/// repository — so the workspace file, which holds the IDE's own generated
+/// Spring Boot configurations, has to be addressed by its literal path.
+/// `Project::read_file` and `Project::write_file` do reach ignored files when
+/// they are named directly.
+pub fn literal_run_files() -> Vec<&'static str> {
+    vec![WORKSPACE_XML]
+}
+
 /// Result of patching one file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Patched {

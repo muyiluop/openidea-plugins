@@ -1,7 +1,7 @@
 id = "muyiluop.jvm-default-parameters"
 name = "JVM Default Parameters"
-version = "0.2.0"
-description = "Injects JVM options and program arguments into launch configurations: patches the .run/*.xml, .idea/runConfigurations/*.xml and .vscode/launch.json files the IDE already reads, and can start a planned Spring Boot launch in a terminal."
+version = "0.3.0"
+description = "Appends your JVM options and program arguments to every launch configuration of the project — including the Spring Boot / Application configurations the IDE detects by itself in .idea/workspace.xml — so a multi-module or micro-service workspace is configured once instead of per configuration."
 authors = ["muyiluop"]
 license = "MIT"
 categories = ["tools"]
@@ -10,47 +10,28 @@ engines.openidea = "^1.3"
 wasm = "dist/plugin.wasm"
 
 activation = [
-    "on-command:jvm-params.preview",
     "on-command:jvm-params.apply-run-files",
-    "on-command:jvm-params.run",
+    "on-command:jvm-params.preview",
 ]
 
 [capabilities]
-# `project.read` scans build files, wrappers and jars and reads run configuration
-# files.
-#
-# The `process:` grants are optional: only "run in a terminal" starts a process,
-# and the IDE asks for each program separately (pinned per project) the first time
-# it is used. Declaring them here is what makes them approvable at all — the host
-# compares an approved program against the exact string in the launch record, so
-# every token the planner can emit is listed.
+# `project.read` reads the run-configuration files that are patched.
+# `project.write` is optional and is what makes patching possible at all: the IDE
+# asks for it once, in Settings › Plugins, and without it the plugin can only
+# report what it would have written.
 required = ["project.read"]
-optional = [
-    "project.write",
-    "process:java",
-    "process:mvnw",
-    "process:mvnw.cmd",
-    "process:gradlew",
-    "process:gradlew.bat",
-    "process:mvn",
-    "process:gradle",
-]
+optional = ["project.write"]
 
 [contributes.settings]
 title = "JVM Default Parameters"
 schema = "settings.schema.json"
 
 [[contributes.commands]]
-id = "jvm-params.preview"
-title = "JVM Default Parameters: Preview Generated Configurations"
-category = "JVM Parameters"
-
-[[contributes.commands]]
 id = "jvm-params.apply-run-files"
-title = "JVM Default Parameters: Apply Parameters to Run Configuration Files"
+title = "JVM Parameters: Apply to All Launch Configurations"
 category = "JVM Parameters"
 
 [[contributes.commands]]
-id = "jvm-params.run"
-title = "JVM Default Parameters: Run with Injected Parameters"
+id = "jvm-params.preview"
+title = "JVM Parameters: Preview"
 category = "JVM Parameters"

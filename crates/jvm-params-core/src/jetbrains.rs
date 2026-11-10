@@ -154,13 +154,25 @@ pub fn set_option_value(text: &str, config: &Config, name: &str, value: &str) ->
         }
     }
     let at = config.open_tag_end.min(text.len());
+    let indent = child_indent(text, at);
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
     let mut out = String::with_capacity(text.len() + escaped.len() + 64);
     out.push_str(&text[..at]);
     out.push_str(&format!(
-        "\n    <option name=\"{name}\" value=\"{escaped}\" />"
+        "{newline}{indent}<option name=\"{name}\" value=\"{escaped}\" />"
     ));
     out.push_str(&text[at..]);
     (out, false)
+}
+
+/// Indentation and line ending of the first element inside the configuration
+/// whose opening tag ends at `at`, so inserted options line up with the file.
+fn child_indent(text: &str, at: usize) -> String {
+    let rest = &text[at..];
+    let rest = rest.strip_prefix("\r\n").or_else(|| rest.strip_prefix('\n')).unwrap_or(rest);
+    let line = rest.split(['\n', '\r']).next().unwrap_or("");
+    let indent: String = line.chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+    if indent.is_empty() { "    ".to_string() } else { indent }
 }
 
 /// Escapes a value for a double-quoted XML attribute.

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 — 简化：一条命令、一次配置、全项目生效
+
+针对反馈「插件做得复杂了，需求就是给自动识别出来的启动服务统一加 JVM/程序参数」重做：
+
+* **能改到 IDE 自己识别的配置了**。这些配置存在 `.idea/workspace.xml` 里，而 `.idea/` 通常在
+  `.gitignore` 中，`find_files` 会跳过它——0.2.0 因此报告"没有可改的文件"。现在按**字面路径**
+  读写 `workspace.xml`（宿主的 `read_file`/`write_file` 只在根目录内限制，不受 gitignore 影响）。
+  用真实的 52 KB `workspace.xml`（20 个 Spring Boot 配置）验证：一次写入 19 个配置，第二次 0 改动。
+* **插件瘦身**：命令只留两个——`JVM Parameters: Apply to All Launch Configurations`（主功能）和
+  `JVM Parameters: Preview`。删掉 `jvm-params.run`（终端里另起一套启动）、所有 `process:*` 能力和
+  `Launch` / `Run dialog` 两组设置项，能力只剩 `project.read`（必需）+ `project.write`（可选）。
+* 设置项收敛为 5 个：`enabled` / `vmOptions` / `programArgs` / `springProfiles` / `mode`。
+* 写入后提示 `File › Reload Project`，因为 IDE 运行时会把 `workspace.xml` 留在内存里。
+* 插入的 `<option>` 自动对齐原文件的缩进与换行（CRLF/LF），补丁保持幂等。
+* 打包：`release/muyiluop.jvm-default-parameters-0.3.0.zip`（wasm 组件 296,290 字节，SDK `tag = "v0.1.39"`，API 1.3）。
+
 ## 0.2.0
 
 改为 **plugin API 1.3**（当前已发布的 IDE v0.1.39 报告的就是 1.3.0），因此可以真正安装加载。
