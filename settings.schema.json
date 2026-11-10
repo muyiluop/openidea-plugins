@@ -4,7 +4,7 @@
     "jvmParams.enabled": {
       "type": "boolean",
       "title": "Enable JVM Default Parameters",
-      "description": "Master switch. When off, no launch configuration file is patched.",
+      "description": "Master switch. When off, nothing is written: no .openidea/run.toml entry, no configuration file is patched.",
       "default": true,
       "group": "Parameters"
     },
@@ -25,7 +25,7 @@
     "jvmParams.springProfiles": {
       "type": "string",
       "title": "Spring profiles",
-      "description": "Comma separated profiles, appended as -Dspring.profiles.active=… to the VM options.",
+      "description": "Comma separated profiles, appended as --spring.profiles.active=… after the main class of every saved configuration.",
       "default": "",
       "group": "Parameters"
     },

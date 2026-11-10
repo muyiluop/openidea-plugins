@@ -23,8 +23,10 @@ pub mod jsonc;
 pub mod merge;
 pub mod patch;
 pub mod plan;
+pub mod run_toml;
 pub mod settings;
 pub mod shell;
+pub mod springboot;
 pub mod vscode;
 
 pub use merge::Mode;

@@ -1,19 +1,22 @@
 //! OpenIDEA guest plugin "JVM Default Parameters" — plugin API **1.3** adapter.
 //!
-//! Two commands, all fed by the same settings and the same planner (which live
-//! in `jvm_params_core`, and are unit tested without the SDK):
+//! What it does, in one sentence: it appends your JVM options (`-Xmx…`, `-D…`)
+//! and program arguments to **every launch configuration the IDE shows for the
+//! project**, without editing any of them by hand.
 //!
-//! * `jvm-params.apply-run-files` — the main command. Writes the configured VM
-//!   options (and, when program arguments are configured, the program
-//!   arguments) into every launch configuration the IDE already reads:
-//!   `.idea/workspace.xml` (the IDE's own auto-detected Spring Boot / Application
-//!   / JUnit configurations — patched by literal path because `.idea/` is
-//!   normally git-ignored), `.run/*.run.xml`, `.idea/runConfigurations/*.xml`
-//!   and `.vscode/launch.json`. One command, every configuration in the
-//!   workspace, no per-configuration editing: this is the IntelliJ "JVM Default
-//!   Options" behaviour.
-//! * `jvm-params.preview` — prints what would be launched and which
-//!   configuration files would be patched, without touching anything.
+//! How: the Spring Boot configurations in the run dialog are *generated* by the
+//! IDE on every listing (`crates/ide-run/src/detect.rs`) and carry no VM options
+//! at all. A configuration saved in `.openidea/run.toml` with the same id
+//! replaces the generated one (`crates/ide-host/src/ops/run.rs`, "saved wins"),
+//! so `jvm-params.apply-run-files` writes one table per detected application
+//! into `.openidea/run.toml`, using the same `java … -cp ${classpath} <main>`
+//! command line the IDE's own JetBrains importer writes.
+//!
+//! The same command also patches the launch configuration *files* the IDE reads
+//! (`.idea/workspace.xml`, `.run/*.run.xml`, `.idea/runConfigurations/*.xml`,
+//! `.vscode/launch.json`), so configurations that came from IntelliJ or from
+//! VS Code get the parameters too. `.idea/` is normally git-ignored, hence the
+//! workspace file is addressed by its literal path.
 //!
 //! Why no `runConfigurations` provider: that contribution point needs plugin API
 //! 1.4, and the released IDE (v0.1.39) still reports plugin API **1.3.0** — a
@@ -25,7 +28,9 @@
 use jvm_params_core::detect::{self, DetectOptions, Files, Reader};
 use jvm_params_core::patch;
 use jvm_params_core::plan;
+use jvm_params_core::run_toml;
 use jvm_params_core::settings::{self, Defaults, SettingsSource};
+use jvm_params_core::springboot;
 use openidea_plugin::{
     host, register_plugin, Context, Error, Invocation, NotificationLevel, Plugin, Project,
 };
@@ -37,6 +42,9 @@ const PREVIEW_COMMAND: &str = "jvm-params.preview";
 const APPLY_COMMAND: &str = "jvm-params.apply-run-files";
 
 const TITLE: &str = "JVM Default Parameters";
+
+/// How many source files the application scan may read.
+const SOURCE_LIMIT: u32 = 4000;
 
 /// The plugin instance. It keeps no state: settings, detection and planning are
 /// cheap enough to redo per command, and re-reading the settings is what makes a
@@ -65,43 +73,71 @@ impl Plugin for JvmParams {
     ) -> Result<Option<String>, Error> {
         match id {
             PREVIEW_COMMAND => Ok(Some(preview(ctx)?)),
-            APPLY_COMMAND => Ok(Some(apply_run_files(ctx)?)),
+            APPLY_COMMAND => Ok(Some(apply(ctx)?)),
             other => Err(format!("unknown command {other}").into()),
         }
     }
 }
 
-/// Everything the planner would produce for the open project.
+/// What would be written, without writing anything.
 fn preview(ctx: &Invocation) -> Result<String, Error> {
     let project = ctx.project().ok_or("open a project first")?;
     let root = project.root()?;
     let defaults = load_defaults();
-    let scan = scan_project(&project, &root, &defaults);
+    let apps = applications(&project, &root, &defaults);
     let platform = plan::resolve_platform(&root, &defaults);
-    let text = plan::preview(&scan, &defaults, platform);
-    let count = plan::generate(&scan, &defaults, platform).len();
+    let scan = scan_project(&project, &root, &defaults);
+    let mut text = plan::preview(&scan, &defaults, platform);
+    text.push_str(&format!(
+        "\n.openidea/run.toml: {} Spring Boot application(s) would be saved\n",
+        apps.len()
+    ));
+    for app in apps.iter().take(40) {
+        text.push_str(&format!("  {} — {}\n", app.id, app.name));
+    }
+    if apps.len() > 40 {
+        text.push_str(&format!("  … and {} more\n", apps.len() - 40));
+    }
     host::notify(
         NotificationLevel::Info,
         TITLE,
-        &format!("{count} configuration(s) planned for this project"),
+        &format!("{} application(s) would be saved in .openidea/run.toml", apps.len()),
     );
     Ok(text)
 }
 
-/// Patches the VM options of every run configuration file the IDE reads.
-fn apply_run_files(ctx: &Invocation) -> Result<String, Error> {
+/// Saves the configurations and patches the configuration files.
+fn apply(ctx: &Invocation) -> Result<String, Error> {
     let project = ctx.project().ok_or("open a project first")?;
+    let root = project.root()?;
     let defaults = load_defaults();
     require_parameters(&defaults)?;
 
     let mut report = String::new();
-    let mut updated = 0usize;
-    let mut failures: Vec<String> = Vec::new();
     let mut hints: Vec<String> = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
 
-    // The IDE's own detected configurations (Spring Boot, Application, JUnit)
-    // are stored in `.idea/workspace.xml`, which `find_files` skips because
-    // `.idea/` is usually ignored — so it is patched by its literal path.
+    // 1. The configurations the run dialog lists.
+    let apps = applications(&project, &root, &defaults);
+    let saved = match save_run_toml(&project, &apps, &defaults) {
+        Ok(saved) => saved,
+        Err(err) => {
+            failures.push(format!("{}: {err}", run_toml::RUN_TOML));
+            0
+        }
+    };
+    report.push_str(&format!(
+        "{}: {} application(s) found, {saved} configuration(s) written\n",
+        run_toml::RUN_TOML,
+        apps.len()
+    ));
+
+    // 2. The configuration files the IDE reads, for configurations that came
+    //    from IntelliJ or VS Code.
+    let mut updated = 0usize;
+    // The IDE's own detected configurations are stored in `.idea/workspace.xml`,
+    // which `find_files` skips because `.idea/` is usually ignored — so it is
+    // patched by its literal path.
     let mut candidates: Vec<String> = Vec::new();
     for literal in patch::literal_run_files() {
         if project.exists(literal).unwrap_or(false) {
@@ -146,21 +182,16 @@ fn apply_run_files(ctx: &Invocation) -> Result<String, Error> {
             Err(err) => {
                 failures.push(format!("{path}: {err}"));
                 hints.push(
-                    "allow the optional `project.write` capability for this plugin in Settings › Plugins to patch files"
+                    "allow the optional `project.write` capability for this plugin in Settings › Plugins to write files"
                         .to_string(),
                 );
             }
         }
     }
 
-    if updated == 0 && failures.is_empty() {
+    if saved > 0 {
         report.push_str(
-            "nothing to patch: no .idea/workspace.xml, .run/*.run.xml, .idea/runConfigurations/*.xml or .vscode/launch.json found\n",
-        );
-    }
-    if updated > 0 {
-        report.push_str(
-            "\nnext: reload the project (File › Reload Project, or restart the IDE) so the IDE picks up the patched .idea/workspace.xml\n",
+            "\nnext: open the run dialog — the configurations are listed right away; restart the IDE if an old one is still cached\n",
         );
     }
     for failure in &failures {
@@ -170,20 +201,53 @@ fn apply_run_files(ctx: &Invocation) -> Result<String, Error> {
         report.push_str(&format!("hint: {hint}\n"));
     }
 
-    if updated == 0 && !failures.is_empty() {
+    if saved == 0 && updated == 0 && !failures.is_empty() {
         host::notify(
             NotificationLevel::Warning,
             TITLE,
-            &format!("could not patch any run configuration file ({} failure(s))", failures.len()),
+            &format!("could not write any configuration ({} failure(s))", failures.len()),
         );
         return Ok(report);
     }
     host::notify(
         NotificationLevel::Info,
         TITLE,
-        &format!("{updated} configuration(s) patched — reload the project to apply"),
+        &format!("{saved} configuration(s) saved to {}", run_toml::RUN_TOML),
     );
     Ok(report)
+}
+
+/// Writes the detected applications into `.openidea/run.toml`, keeping the
+/// tables the user wrote there. Returns how many tables changed.
+fn save_run_toml(
+    project: &Project,
+    apps: &[springboot::App],
+    defaults: &Defaults,
+) -> Result<usize, Error> {
+    let entries = run_toml::entries(apps, defaults);
+    let existing = if project.exists(run_toml::RUN_TOML).unwrap_or(false) {
+        project
+            .read_file(run_toml::RUN_TOML)
+            .map_err(|err| Error::Failed(format!("{}: {err}", run_toml::RUN_TOML)))?
+    } else {
+        String::new()
+    };
+    let (text, changed) = run_toml::upsert(&existing, &entries, defaults);
+    if changed == 0 {
+        return Ok(0);
+    }
+    project
+        .write_file(run_toml::RUN_TOML, &text)
+        .map_err(|err| Error::Failed(format!("{}: {err}", run_toml::RUN_TOML)))?;
+    Ok(changed)
+}
+
+/// The Spring Boot applications the IDE would list for this project.
+fn applications(project: &Project, root: &str, defaults: &Defaults) -> Vec<springboot::App> {
+    let scan = scan_project(project, root, defaults);
+    let sources = scan_sources(project);
+    let reader = ProjectReader { project };
+    springboot::apps(&scan, &sources, &reader)
 }
 
 fn require_parameters(defaults: &Defaults) -> Result<(), Error> {
@@ -233,6 +297,17 @@ fn collect_files(project: &Project, defaults: &Defaults) -> Files {
         files.jars = find(project, "**/*.jar", 128);
     }
     files
+}
+
+/// The Java and Kotlin sources the application scan looks at.
+fn scan_sources(project: &Project) -> Vec<String> {
+    let mut sources = Vec::new();
+    for glob in springboot::source_globs() {
+        sources.extend(find(project, glob, SOURCE_LIMIT));
+    }
+    sources.sort();
+    sources.dedup();
+    sources
 }
 
 fn find(project: &Project, glob: &str, limit: u32) -> Vec<String> {

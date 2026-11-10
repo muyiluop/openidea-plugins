@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0 — 参数终于真的到了「自动识别出来的启动配置」上
+
+0.3.0 改的是 `.idea/workspace.xml`，但那不是 IDE 左侧运行树的数据源：那些 Spring Boot 条目是
+`crates/ide-run/src/detect.rs` 每次列目录时**现生成**的（`java -cp ${classpath} <MainClass>`，
+不带任何 VM 参数），`workspace.xml` 只被「导入 IntelliJ 配置」时读一次。所以 0.3.0 对用户看到的
+条目无效。
+
+* **改为写 `.openidea/run.toml`**：宿主 `crates/ide-host/src/ops/run.rs::detected_and_saved` 用
+  「保存的 id 存在就丢掉检测到的那个」的规则合并，因此写入同 id 的配置即覆盖生成项、参数生效。
+  配置形态与 IDE 自己的 JetBrains 导入器一致：
+  `java <VM 参数> -cp ${classpath} <主类> [--spring.profiles.active=…] <程序参数>`，
+  `${classpath}` 由前端 `resolveJvmApplication` 在启动前解析。
+* 新增 `crates/jvm-params-core/src/springboot.rs`：按宿主的规则扫描 Spring Boot 应用
+  （`src/main/{java,kotlin}`、pom 含 `spring-boot-maven-plugin` 且非 `<packaging>pom</packaging>`、
+  或 gradle 引了 `org.springframework.boot` 插件；按包深度 BFS 取最浅层带 `main` 的类），
+  生成与 IDE 完全一致的 id `application:<模块目录>:<主类>`。
+* 新增 `crates/jvm-params-core/src/run_toml.rs`：增量写入 —— 保留你手写的表、保留配置自带的
+  `env` / `cwd` / `before-launch` 等字段，只合并命令行；append / override 两种合并语义、幂等。
+* 用真实工程（`D:\workspace\water\water-server`，Maven 多模块，29 个 Spring Boot 模块）验证：
+  检测到 **18 个应用**，与 IDE 运行树同名同 id，写入 18 条配置、第二次 0 改动。
+* 命令仍是两个：`JVM Parameters: Apply to All Launch Configurations`（写 run.toml + 补丁配置文件）
+  和 `JVM Parameters: Preview`（只报告）。能力不变：`project.read` 必需、`project.write` 可选。
+* `crates/jvm-params-core` 单元测试 91 passed；wasm 组件 368,521 字节（SDK `tag = "v0.1.39"`，API 1.3）。`upsert` 的幂等性在真实 18 条配置上实测修好（表间空行的归属问题曾让第二次写入误报 `changed=17`），并补了回归测试。
+* 顺带确认 `find_files` 的实现（`globset` + `literal_separator(true)`），凡是 `**/pom.xml`
+  `**/src/main/java/**/*.java` 这类通配都实测匹配（含根目录文件）。
+
 ## 0.3.0 — 简化：一条命令、一次配置、全项目生效
 
 针对反馈「插件做得复杂了，需求就是给自动识别出来的启动服务统一加 JVM/程序参数」重做：
